@@ -1,4 +1,26 @@
+"""
+main.py
+
+Single-file FastAPI backend for the Disease Prediction Assistant.
+
+Run it with:
+    uvicorn main:app --reload
+
+Then open http://127.0.0.1:8000/docs to test it interactively.
+
+Endpoints:
+    GET  /            -> health check, confirms API is running
+    GET  /symptoms     -> returns the 131 valid symptom names
+    POST /predict       -> takes a list of symptoms, returns predicted disease
+
+Place these 3 files in the SAME folder as this script before running:
+    - disease_prediction_model.pkl
+    - disease_label_encoder.pkl
+    - symptom_columns.pkl
+"""
+
 import joblib
+from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
@@ -18,15 +40,33 @@ from pydantic import BaseModel, Field
 # joblib.dump() (common for scikit-learn/XGBoost objects, especially ones
 # containing large numpy arrays). Loading them with plain pickle.load()
 # raises: _pickle.UnpicklingError: STACK_GLOBAL requires str
+#
+# BASE_DIR anchors all three paths to the folder that CONTAINS this file,
+# not to whatever directory the terminal happens to be in when you run
+# "uvicorn main:app". This is what previously caused an OLD symptom_columns.pkl
+# (17 legacy "Symptom_1"..."Symptom_17" columns) to be loaded instead of the
+# correct, freshly-saved 131-column file.
 
-MODEL_PATH = "disease_prediction_model.pkl"
-ENCODER_PATH = "disease_label_encoder.pkl"
-COLUMNS_PATH = "symptom_columns.pkl"
+BASE_DIR = Path(__file__).resolve().parent
 
+MODEL_PATH = BASE_DIR / "disease_prediction_model.pkl"
+ENCODER_PATH = BASE_DIR / "disease_label_encoder.pkl"
+COLUMNS_PATH = BASE_DIR / "symptom_columns.pkl"
 
 model = joblib.load(MODEL_PATH)                # trained XGBoost model
 label_encoder = joblib.load(ENCODER_PATH)      # LabelEncoder for disease names
 symptom_columns = joblib.load(COLUMNS_PATH)    # list of 131 symptom names, in training order
+
+# ---- TEMPORARY startup verification -------------------------------------
+# Prints to the terminal running "uvicorn main:app" so you can confirm, at a
+# glance, exactly which files were loaded and that symptom_columns really
+# has 131 entries starting with the correct names. Safe to delete later.
+print("Model loaded from:", MODEL_PATH)
+print("Encoder loaded from:", ENCODER_PATH)
+print("Symptom columns loaded from:", COLUMNS_PATH)
+print("Number of symptom columns:", len(symptom_columns))
+print("First 10 symptom columns:", symptom_columns[:10])
+# ---------------------------------------------------------------------------
 
 
 # ==========================================================================
