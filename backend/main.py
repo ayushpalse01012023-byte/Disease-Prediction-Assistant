@@ -19,7 +19,7 @@ Place these 3 files in the SAME folder as this script before running:
     - symptom_columns.pkl
 """
 
-import pickle
+import joblib
 from typing import List, Optional
 
 import pandas as pd
@@ -34,21 +34,20 @@ from pydantic import BaseModel, Field
 # This code runs ONCE, when the server starts (because Python only executes
 # top-level module code the first time the file is run/imported). Every
 # request afterwards reuses these same objects instead of reloading them.
+#
+# joblib is used instead of pickle because these files were saved with
+# joblib.dump() (common for scikit-learn/XGBoost objects, especially ones
+# containing large numpy arrays). Loading them with plain pickle.load()
+# raises: _pickle.UnpicklingError: STACK_GLOBAL requires str
 
 MODEL_PATH = "disease_prediction_model.pkl"
 ENCODER_PATH = "disease_label_encoder.pkl"
 COLUMNS_PATH = "symptom_columns.pkl"
 
 
-def load_pickle(path: str):
-    """Small helper that just opens a .pkl file and loads it with pickle."""
-    with open(path, "rb") as f:
-        return pickle.load(f)
-
-
-model = load_pickle(MODEL_PATH)                # trained XGBoost model
-label_encoder = load_pickle(ENCODER_PATH)      # LabelEncoder for disease names
-symptom_columns = load_pickle(COLUMNS_PATH)    # list of 131 symptom names, in training order
+model = joblib.load(MODEL_PATH)                # trained XGBoost model
+label_encoder = joblib.load(ENCODER_PATH)      # LabelEncoder for disease names
+symptom_columns = joblib.load(COLUMNS_PATH)    # list of 131 symptom names, in training order
 
 
 # ==========================================================================
