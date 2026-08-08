@@ -1,24 +1,3 @@
-"""
-main.py
-
-Single-file FastAPI backend for the Disease Prediction Assistant.
-
-Run it with:
-    uvicorn main:app --reload
-
-Then open http://127.0.0.1:8000/docs to test it interactively.
-
-Endpoints:
-    GET  /            -> health check, confirms API is running
-    GET  /symptoms     -> returns the 131 valid symptom names
-    POST /predict       -> takes a list of symptoms, returns predicted disease
-
-Place these 3 files in the SAME folder as this script before running:
-    - disease_prediction_model.pkl
-    - disease_label_encoder.pkl
-    - symptom_columns.pkl
-"""
-
 import joblib
 from typing import List, Optional
 
