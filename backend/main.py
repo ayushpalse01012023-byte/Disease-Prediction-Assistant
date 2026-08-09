@@ -1,7 +1,7 @@
 """
 main.py
 
-Single-file FastAPI backend for the Disease Prediction 
+Single-file FastAPI backend for the Disease Prediction Assistant.
 
 Run it with:
     uvicorn main:app --reload
