@@ -11,12 +11,13 @@ Then open http://127.0.0.1:8000/docs to test it interactively.
 Endpoints:
     GET  /            -> health check, confirms API is running
     GET  /symptoms     -> returns the 131 valid symptom names
-    POST /predict       -> takes a list of symptoms, returns predicted disease
+    POST /predict       -> takes a list of symptoms, returns predicted diseases
 
 Place these 3 files in the SAME folder as this script before running:
     - disease_prediction_model.pkl
     - disease_label_encoder.pkl
     - symptom_columns.pkl
+
 """
 
 import joblib
@@ -139,6 +140,7 @@ def get_symptoms():
     """
     Returns the exact 131 symptom names the model was trained on.
     The frontend will call this so it never has to hardcode the symptom list.
+
     """
     return {
         "total_symptoms": len(symptom_columns),
