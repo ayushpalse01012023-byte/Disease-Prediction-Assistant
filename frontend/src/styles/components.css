@@ -198,3 +198,283 @@
 .diagnostic-panel textarea:focus {
   border-color: var(--color-accent-primary);
 }
+
+/* ==========================================================================
+   DIAGNOSTIC PANEL — SYMPTOM SELECTION UI
+   ========================================================================== */
+
+/* --------------------------------------------------------------------
+   HEADER / SUBTITLE
+   -------------------------------------------------------------------- */
+.diagnostic-header {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text-primary);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.diagnostic-header::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: var(--space-2);
+  border-radius: var(--radius-full);
+  background-color: var(--color-accent-primary);
+  vertical-align: middle;
+}
+
+.diagnostic-subtitle {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-top: var(--space-3);
+}
+
+/* --------------------------------------------------------------------
+   SYMPTOM SEARCH
+   Recessed input well, system-search appearance.
+   -------------------------------------------------------------------- */
+.symptom-search {
+  margin-top: var(--space-3);
+}
+
+.symptom-search-input {
+  width: 100%;
+  background-color: var(--color-surface-inset);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: border-color var(--transition-fast);
+}
+
+.symptom-search-input::placeholder {
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.symptom-search-input:hover {
+  border-color: var(--color-border-strong);
+}
+
+.symptom-search-input:focus {
+  border-color: var(--color-accent-primary);
+}
+
+.symptom-search-input:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------
+   SYMPTOM RESULTS
+   Compact scrollable record list.
+   -------------------------------------------------------------------- */
+.symptom-results {
+  margin-top: var(--space-3);
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background-color: var(--color-surface-inset);
+}
+
+.symptom-option {
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  transition: background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.symptom-option:last-child {
+  border-bottom: none;
+}
+
+.symptom-option:hover {
+  background-color: var(--color-surface-2);
+  color: var(--color-text-primary);
+}
+
+.symptom-option:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: -2px;
+}
+
+.symptom-option-selected,
+.symptom-option-selected:hover {
+  background-color: var(--color-accent-primary-muted);
+  color: var(--color-accent-primary-hover);
+  border-left: 2px solid var(--color-accent-primary);
+  padding-left: calc(var(--space-3) - 2px);
+}
+
+/* --------------------------------------------------------------------
+   SYMPTOM COUNT
+   -------------------------------------------------------------------- */
+.symptom-count {
+  margin-top: var(--space-3);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent-primary);
+}
+
+/* --------------------------------------------------------------------
+   SELECTED SYMPTOMS
+   Compact technical tags/rows, visually distinct from result list.
+   -------------------------------------------------------------------- */
+.selected-symptoms {
+  margin-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.selected-symptom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-border-default);
+  border-left: 2px solid var(--color-accent-primary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+}
+
+.selected-symptom-remove {
+  background: none;
+  border: none;
+  padding: 0 0 0 var(--space-2);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.selected-symptom-remove:hover {
+  color: var(--color-error);
+}
+
+.selected-symptom-remove:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------
+   DIAGNOSIS ACTIONS
+   Clear = secondary, Run Diagnosis = primary diagnostic action.
+   -------------------------------------------------------------------- */
+.diagnosis-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.clear-symptoms {
+  flex: 1;
+  background-color: var(--color-surface-2);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast),
+    background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.clear-symptoms:hover:not(:disabled) {
+  background-color: var(--color-surface-3);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.clear-symptoms:disabled {
+  color: var(--color-text-disabled);
+  border-color: var(--color-border-subtle);
+  cursor: not-allowed;
+}
+
+.run-diagnosis {
+  flex: 2;
+  background-color: var(--color-accent-primary-muted);
+  border: 1px solid var(--color-accent-primary);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-accent-primary-hover);
+  cursor: pointer;
+  transition: background-color var(--transition-fast),
+    box-shadow var(--transition-fast), color var(--transition-fast);
+}
+
+.run-diagnosis:hover:not(:disabled) {
+  background-color: var(--color-accent-primary);
+  color: var(--color-text-inverse);
+  box-shadow: var(--shadow-glow-primary);
+}
+
+.run-diagnosis:disabled {
+  background-color: var(--color-surface-2);
+  border-color: var(--color-border-subtle);
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.clear-symptoms:focus-visible,
+.run-diagnosis:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------------------
+   RESPONSIVE — keep usable inside the sidebar column on smaller widths
+   -------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .symptom-results {
+    max-height: 160px;
+  }
+
+  .diagnosis-actions {
+    flex-direction: column;
+  }
+
+  .clear-symptoms,
+  .run-diagnosis {
+    flex: none;
+    width: 100%;
+  }
+}
