@@ -1,8 +1,16 @@
 import { useState } from "react";
 import useSymptoms from "../../hooks/useSymptoms";
+import useDiagnosis from "../../hooks/useDiagnosis";
 
 function DiagnosticPanel({ children }) {
   const { symptoms, loading, error, refetch } = useSymptoms();
+
+  const {
+    result,
+    loading: diagnosisLoading,
+    error: diagnosisError,
+    diagnose,
+  } = useDiagnosis();
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedSymptoms, setSelectedSymptoms] = useState([]);
@@ -32,7 +40,7 @@ function DiagnosticPanel({ children }) {
   }
 
   function handleRunDiagnosis() {
-    // Backend connection to POST /predict will be added in a later step.
+    diagnose(selectedSymptoms);
   }
 
   return (
@@ -113,11 +121,28 @@ function DiagnosticPanel({ children }) {
               type="button"
               className="run-diagnosis"
               onClick={handleRunDiagnosis}
-              disabled={selectedSymptoms.length === 0}
+              disabled={selectedSymptoms.length === 0 || diagnosisLoading}
             >
-              Run Diagnosis
+              {diagnosisLoading ? "ANALYZING..." : "Run Diagnosis"}
             </button>
           </div>
+
+          {diagnosisError && (
+            <p className="diagnosis-error">{diagnosisError}</p>
+          )}
+
+          {result && (
+            <div className="diagnosis-result">
+              <p className="diagnosis-result-label">Predicted Disease</p>
+              <p className="diagnosis-result-value">
+                {result.predicted_disease}
+              </p>
+              <p className="diagnosis-result-label">Confidence</p>
+              <p className="diagnosis-result-value">
+                {result.confidence}
+              </p>
+            </div>
+          )}
         </>
       )}
 
