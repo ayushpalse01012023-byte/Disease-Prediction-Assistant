@@ -198,24 +198,3 @@
 .diagnostic-panel textarea:focus {
   border-color: var(--color-accent-primary);
 }
-
-/* --------------------------------------------------------------------
-   TECHNICAL / READOUT TYPOGRAPHY
-   Reserved for future diagnostic values — confidence scores, timestamps,
-   measurements. Not applied to any element yet, available as a utility.
-   -------------------------------------------------------------------- */
-.readout {
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  letter-spacing: 0.02em;
-  color: var(--color-accent-primary);
-}
-
-.readout-label {
-  font-family: var(--font-family-mono);
-  font-size: var(--font-size-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-}
