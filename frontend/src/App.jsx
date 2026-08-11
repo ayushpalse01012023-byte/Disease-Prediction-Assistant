@@ -1,9 +1,7 @@
+import DiagnosticPage from "./pages/DiagnosticPage";
+
 function App() {
-  return (
-    <div>
-      <h1>Disease Prediction Assistant</h1>
-    </div>
-  );
+  return <DiagnosticPage />;
 }
 
 export default App;
