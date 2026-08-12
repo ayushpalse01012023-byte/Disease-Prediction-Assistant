@@ -478,3 +478,255 @@
     width: 100%;
   }
 }
+/* ==========================================================================
+   DIAGNOSTIC RESULT
+   Machine-output readout panel — recessed instrument bezel, not a card.
+   No JSX changes required; all detailing is achieved via existing
+   classes plus ::before/::after pseudo-elements.
+   ========================================================================== */
+
+.diagnostic-result {
+  position: relative;
+  margin-top: var(--space-4);
+  background-color: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  box-shadow:
+    inset 0 0 0 1px var(--color-border-subtle),
+    inset 0 2px 4px rgba(0, 0, 0, 0.35),
+    inset 0 -1px 0 0 rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+/* Asymmetric technical corner markers — top-left only, deliberately
+   off-balance rather than a symmetric decorative frame. */
+.diagnostic-result::before {
+  content: "";
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  width: 10px;
+  height: 10px;
+  border-top: 1px solid var(--color-accent-primary-muted);
+  border-left: 1px solid var(--color-accent-primary-muted);
+  pointer-events: none;
+}
+
+/* Bottom-right measurement tick, offset — reinforces the asymmetry */
+.diagnostic-result::after {
+  content: "";
+  position: absolute;
+  bottom: var(--space-2);
+  right: var(--space-3);
+  width: 22px;
+  height: 1px;
+  background-color: var(--color-border-strong);
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------
+   HEADER — module identifier, not a page heading.
+   -------------------------------------------------------------------- */
+.diagnostic-result-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.diagnostic-result-header::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  background-color: var(--color-accent-primary);
+  flex-shrink: 0;
+}
+
+/* module ID suffix, purely typographic framing */
+.diagnostic-result-header::after {
+  content: "MOD-04";
+  margin-left: auto;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  color: var(--color-text-disabled);
+}
+
+/* --------------------------------------------------------------------
+   READOUT ROWS
+   -------------------------------------------------------------------- */
+.diagnostic-result-row {
+  position: relative;
+  padding: var(--space-3) 0;
+  border-bottom: 1px dashed var(--color-border-subtle);
+}
+
+.diagnostic-result-row:last-of-type {
+  border-bottom: none;
+}
+
+.diagnostic-result-label {
+  font-family: var(--font-family-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-1);
+}
+
+.diagnostic-result-label::before {
+  content: "// ";
+  color: var(--color-border-strong);
+}
+
+.diagnostic-result-value {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  letter-spacing: 0.01em;
+}
+
+/* --------------------------------------------------------------------
+   PRIMARY OUTPUT — predicted disease.
+   Treated as the dominant classification lock, framed with an inset
+   panel and a left signal bar rather than plain text.
+   -------------------------------------------------------------------- */
+.diagnostic-result-row:nth-of-type(1) {
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--color-accent-primary);
+  background-color: var(--color-surface-inset);
+  border-radius: var(--radius-sm);
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+.diagnostic-result-row:nth-of-type(1) .diagnostic-result-value {
+  font-size: var(--font-size-lg);
+  color: var(--color-text-primary);
+  text-shadow: 0 0 6px rgba(47, 184, 198, 0.15);
+}
+
+/* --------------------------------------------------------------------
+   SECONDARY OUTPUT — confidence, rendered as a measured AI signal.
+   Decorative segmented meter track behind the numeric readout, built
+   entirely from box-shadow ticks (no gradients).
+   -------------------------------------------------------------------- */
+.diagnostic-result-row:nth-of-type(2) .diagnostic-result-value {
+  position: relative;
+  display: inline-block;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-accent-primary);
+  padding-left: var(--space-2);
+}
+
+.diagnostic-result-row:nth-of-type(2)::after {
+  content: "";
+  display: block;
+  margin-top: var(--space-2);
+  height: 3px;
+  width: 100%;
+  background-color: var(--color-surface-2);
+  box-shadow:
+    6px 0 0 0 var(--color-surface-2),
+    12px 0 0 0 var(--color-accent-primary-muted),
+    18px 0 0 0 var(--color-accent-primary-muted),
+    24px 0 0 0 var(--color-accent-primary),
+    30px 0 0 0 var(--color-accent-primary),
+    36px 0 0 0 var(--color-accent-primary),
+    42px 0 0 0 var(--color-surface-2),
+    48px 0 0 0 var(--color-surface-2),
+    54px 0 0 0 var(--color-surface-2),
+    60px 0 0 0 var(--color-surface-2);
+}
+
+/* --------------------------------------------------------------------
+   STATUS INDICATOR — "Analysis Complete" as a system-status line.
+   -------------------------------------------------------------------- */
+.diagnostic-result-status {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+  font-family: var(--font-family-mono);
+  font-size: 0.7rem;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent-primary);
+}
+
+.diagnostic-result-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-accent-primary);
+  box-shadow: 0 0 3px rgba(47, 184, 198, 0.6);
+  flex-shrink: 0;
+  animation: diagnostic-status-pulse 2.4s ease-in-out infinite;
+}
+
+.diagnostic-result-status::after {
+  content: "";
+  margin-left: auto;
+  width: 30px;
+  height: 1px;
+  background-color: var(--color-border-strong);
+}
+
+@keyframes diagnostic-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .diagnostic-result-status::before {
+    animation: none;
+  }
+}
+
+/* --------------------------------------------------------------------
+   RESPONSIVE — remains compact inside the sidebar.
+   -------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .diagnostic-result {
+    padding: var(--space-3) var(--space-3) var(--space-2);
+  }
+
+  .diagnostic-result-row:nth-of-type(1) .diagnostic-result-value {
+    font-size: var(--font-size-base);
+  }
+
+  .diagnostic-result-header::after {
+    display: none;
+  }
+
+  .diagnostic-result-row:nth-of-type(2)::after {
+    box-shadow:
+      6px 0 0 0 var(--color-surface-2),
+      12px 0 0 0 var(--color-accent-primary-muted),
+      18px 0 0 0 var(--color-accent-primary),
+      24px 0 0 0 var(--color-accent-primary),
+      30px 0 0 0 var(--color-surface-2);
+  }
+}
