@@ -1,6 +1,7 @@
 import { useState } from "react";
 import useSymptoms from "../../hooks/useSymptoms";
 import useDiagnosis from "../../hooks/useDiagnosis";
+import DiagnosticResult from "./DiagnosticResult";
 
 function DiagnosticPanel({ children }) {
   const { symptoms, loading, error, refetch } = useSymptoms();
@@ -131,18 +132,7 @@ function DiagnosticPanel({ children }) {
             <p className="diagnosis-error">{diagnosisError}</p>
           )}
 
-          {result && (
-            <div className="diagnosis-result">
-              <p className="diagnosis-result-label">Predicted Disease</p>
-              <p className="diagnosis-result-value">
-                {result.predicted_disease}
-              </p>
-              <p className="diagnosis-result-label">Confidence</p>
-              <p className="diagnosis-result-value">
-                {result.confidence}
-              </p>
-            </div>
-          )}
+          <DiagnosticResult result={result} />
         </>
       )}
 
