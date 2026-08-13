@@ -87,7 +87,11 @@ function DiagnosticPanel({ children }) {
             />
           </div>
 
-          <ul className="symptom-results" role="listbox" aria-label="Available symptoms">
+          <ul
+            className="symptom-results"
+            role="listbox"
+            aria-label="Available symptoms"
+          >
             {filteredSymptoms.map((symptom) => (
               <li
                 key={symptom}
@@ -127,7 +131,10 @@ function DiagnosticPanel({ children }) {
             <ul className="selected-symptoms">
               {selectedSymptoms.map((symptom) => (
                 <li key={symptom} className="selected-symptom">
-                  <span className="selected-symptom-marker" aria-hidden="true" />
+                  <span
+                    className="selected-symptom-marker"
+                    aria-hidden="true"
+                  />
                   <span className="selected-symptom-label">{symptom}</span>
                   <button
                     type="button"
