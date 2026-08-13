@@ -673,9 +673,8 @@
 
 /* ==========================================================================
    DIAGNOSTIC RESULT
-   Machine-output readout panel — recessed instrument bezel, not a card.
-   No JSX changes required; all detailing is achieved via existing
-   classes plus ::before/::after pseudo-elements.
+   Diagnostic intelligence output — a fixed instrument readout, not a card.
+   All detailing via existing classes + ::before/::after; no markup change.
    ========================================================================== */
 
 .diagnostic-result {
@@ -692,7 +691,7 @@
   overflow: hidden;
 }
 
-/* Asymmetric technical corner markers — top-left only, deliberately
+/* Asymmetric technical corner marker — top-left only, deliberately
    off-balance rather than a symmetric decorative frame. */
 .diagnostic-result::before {
   content: "";
@@ -706,7 +705,7 @@
   pointer-events: none;
 }
 
-/* Bottom-right measurement tick, offset — reinforces the asymmetry */
+/* Bottom-right measurement tick — reinforces the asymmetry */
 .diagnostic-result::after {
   content: "";
   position: absolute;
@@ -745,7 +744,6 @@
   flex-shrink: 0;
 }
 
-/* module ID suffix, purely typographic framing */
 .diagnostic-result-header::after {
   content: "MOD-04";
   margin-left: auto;
@@ -755,7 +753,7 @@
 }
 
 /* --------------------------------------------------------------------
-   READOUT ROWS
+   READOUT ROWS — generic scaffold
    -------------------------------------------------------------------- */
 .diagnostic-result-row {
   position: relative;
@@ -776,8 +774,14 @@
   margin-bottom: var(--space-1);
 }
 
-.diagnostic-result-label::before {
-  content: "// ";
+/* Technical metadata prefixes — CLASSIFICATION / CONFIDENCE */
+.diagnostic-result-row:nth-of-type(1) .diagnostic-result-label::before {
+  content: "CLASSIFICATION // ";
+  color: var(--color-border-strong);
+}
+
+.diagnostic-result-row:nth-of-type(2) .diagnostic-result-label::before {
+  content: "CONFIDENCE // ";
   color: var(--color-border-strong);
 }
 
@@ -790,8 +794,7 @@
 
 /* --------------------------------------------------------------------
    PRIMARY OUTPUT — predicted disease.
-   Treated as the dominant classification lock, framed with an inset
-   panel and a left signal bar rather than plain text.
+   The classified state of the system: inset panel + left signal bar.
    -------------------------------------------------------------------- */
 .diagnostic-result-row:nth-of-type(1) {
   padding-left: var(--space-3);
@@ -810,18 +813,19 @@
 }
 
 /* --------------------------------------------------------------------
-   SECONDARY OUTPUT — confidence, rendered as a measured AI signal.
-   Decorative segmented meter track behind the numeric readout, built
-   entirely from box-shadow ticks (no gradients).
+   SECONDARY OUTPUT — confidence, as a measured precision signal.
+   Numeric value plus a segmented meter built from box-shadow ticks
+   sized by the actual confidence — no gradients, no glow overload.
    -------------------------------------------------------------------- */
 .diagnostic-result-row:nth-of-type(2) .diagnostic-result-value {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
   font-family: var(--font-family-mono);
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-medium);
   color: var(--color-accent-primary);
-  padding-left: var(--space-2);
 }
 
 .diagnostic-result-row:nth-of-type(2)::after {
@@ -845,7 +849,7 @@
 }
 
 /* --------------------------------------------------------------------
-   STATUS INDICATOR — "Analysis Complete" as a system-status line.
+   STATUS INDICATOR — "Analysis Complete" as an inference state line.
    -------------------------------------------------------------------- */
 .diagnostic-result-status {
   position: relative;
@@ -864,22 +868,21 @@
 }
 
 .diagnostic-result-status::before {
+  content: "INFERENCE STATE // ";
+  color: var(--color-text-disabled);
+  letter-spacing: 0.08em;
+}
+
+.diagnostic-result-status::after {
   content: "";
   width: 6px;
   height: 6px;
   border-radius: var(--radius-full);
   background-color: var(--color-accent-primary);
   box-shadow: 0 0 3px rgba(47, 184, 198, 0.6);
+  margin-left: auto;
   flex-shrink: 0;
   animation: diagnostic-status-pulse 2.4s ease-in-out infinite;
-}
-
-.diagnostic-result-status::after {
-  content: "";
-  margin-left: auto;
-  width: 30px;
-  height: 1px;
-  background-color: var(--color-border-strong);
 }
 
 @keyframes diagnostic-status-pulse {
@@ -893,7 +896,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .diagnostic-result-status::before {
+  .diagnostic-result-status::after {
     animation: none;
   }
 }
@@ -912,6 +915,10 @@
 
   .diagnostic-result-header::after {
     display: none;
+  }
+
+  .diagnostic-result-status::before {
+    content: "STATE // ";
   }
 
   .diagnostic-result-row:nth-of-type(2)::after {
