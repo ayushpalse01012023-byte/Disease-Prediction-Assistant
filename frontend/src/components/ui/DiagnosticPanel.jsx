@@ -46,17 +46,28 @@ function DiagnosticPanel({ children }) {
 
   return (
     <section className="diagnostic-panel">
-      <h2 className="diagnostic-header">Diagnostic Input</h2>
-      <p className="diagnostic-subtitle">Select Observed Symptoms</p>
+      <header className="diagnostic-console-header">
+        <p className="console-eyebrow">Diagnostic Interface // 04</p>
+        <h2 className="diagnostic-header">Diagnostic Input</h2>
+        <p className="diagnostic-subtitle">Select Observed Symptoms</p>
+      </header>
 
       {loading && (
-        <p className="diagnostic-subtitle">LOADING SYMPTOM DATABASE...</p>
+        <div className="console-state console-state-loading">
+          <span className="console-state-marker" aria-hidden="true" />
+          <p className="console-state-text">Loading Symptom Database…</p>
+        </div>
       )}
 
       {error && !loading && (
-        <div className="diagnostic-subtitle">
-          <p>{error}</p>
-          <button type="button" onClick={refetch}>
+        <div className="console-state console-state-error">
+          <span className="console-state-marker" aria-hidden="true" />
+          <p className="console-state-text">{error}</p>
+          <button
+            type="button"
+            className="console-retry"
+            onClick={refetch}
+          >
             Retry
           </button>
         </div>
@@ -65,49 +76,71 @@ function DiagnosticPanel({ children }) {
       {!loading && !error && (
         <>
           <div className="symptom-search">
+            <span className="symptom-search-marker" aria-hidden="true" />
             <input
               type="text"
               className="symptom-search-input"
-              placeholder="Search symptoms..."
+              placeholder="Search symptom index…"
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
+              aria-label="Search symptoms"
             />
           </div>
 
-          <ul className="symptom-results">
+          <ul className="symptom-results" role="listbox" aria-label="Available symptoms">
             {filteredSymptoms.map((symptom) => (
               <li
                 key={symptom}
+                role="option"
+                aria-selected={isSelected(symptom)}
+                tabIndex={0}
                 className={
                   isSelected(symptom)
                     ? "symptom-option symptom-option-selected"
                     : "symptom-option"
                 }
                 onClick={() => toggleSymptom(symptom)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    toggleSymptom(symptom);
+                  }
+                }}
               >
-                {symptom}
+                <span className="symptom-option-marker" aria-hidden="true" />
+                <span className="symptom-option-label">{symptom}</span>
               </li>
             ))}
+
+            {filteredSymptoms.length === 0 && (
+              <li className="symptom-results-empty">No matching symptoms</li>
+            )}
           </ul>
 
-          <p className="symptom-count">
-            {selectedSymptoms.length} SYMPTOMS SELECTED
-          </p>
+          <div className="symptom-array-header">
+            <p className="symptom-count">
+              {selectedSymptoms.length} Symptoms Selected
+            </p>
+          </div>
 
-          <ul className="selected-symptoms">
-            {selectedSymptoms.map((symptom) => (
-              <li key={symptom} className="selected-symptom">
-                {symptom}
-                <button
-                  type="button"
-                  className="selected-symptom-remove"
-                  onClick={() => removeSymptom(symptom)}
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-          </ul>
+          {selectedSymptoms.length > 0 && (
+            <ul className="selected-symptoms">
+              {selectedSymptoms.map((symptom) => (
+                <li key={symptom} className="selected-symptom">
+                  <span className="selected-symptom-marker" aria-hidden="true" />
+                  <span className="selected-symptom-label">{symptom}</span>
+                  <button
+                    type="button"
+                    className="selected-symptom-remove"
+                    onClick={() => removeSymptom(symptom)}
+                    aria-label={`Remove ${symptom}`}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
 
           <div className="diagnosis-actions">
             <button
@@ -124,12 +157,25 @@ function DiagnosticPanel({ children }) {
               onClick={handleRunDiagnosis}
               disabled={selectedSymptoms.length === 0 || diagnosisLoading}
             >
-              {diagnosisLoading ? "ANALYZING..." : "Run Diagnosis"}
+              <span className="run-diagnosis-marker" aria-hidden="true" />
+              {diagnosisLoading ? "Analyzing…" : "Run Diagnosis"}
             </button>
           </div>
 
-          {diagnosisError && (
-            <p className="diagnosis-error">{diagnosisError}</p>
+          {diagnosisLoading && (
+            <div className="console-state console-state-computing">
+              <span className="console-state-marker" aria-hidden="true" />
+              <p className="console-state-text">
+                Processing diagnostic inference…
+              </p>
+            </div>
+          )}
+
+          {diagnosisError && !diagnosisLoading && (
+            <div className="console-state console-state-error">
+              <span className="console-state-marker" aria-hidden="true" />
+              <p className="console-state-text">{diagnosisError}</p>
+            </div>
           )}
 
           <DiagnosticResult result={result} />
