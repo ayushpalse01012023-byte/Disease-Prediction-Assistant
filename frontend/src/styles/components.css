@@ -45,7 +45,7 @@
 }
 
 /* --------------------------------------------------------------------
-   DIAGNOSTIC PANEL
+   DIAGNOSTIC PANEL — outer shell
    Instrument control panel — structured, hierarchical, matte.
    -------------------------------------------------------------------- */
 .diagnostic-panel {
@@ -54,31 +54,9 @@
   border-radius: var(--radius-sm);
 }
 
-.diagnostic-panel h2 {
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: var(--color-text-primary);
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
 .diagnostic-panel p {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
-}
-
-/* Status indicator preceding the panel heading — signals "active module" */
-.diagnostic-panel h2::before {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: var(--space-2);
-  border-radius: var(--radius-full);
-  background-color: var(--color-accent-primary);
-  vertical-align: middle;
 }
 
 /* --------------------------------------------------------------------
@@ -152,11 +130,13 @@
 }
 
 /* --------------------------------------------------------------------
-   INTERACTION STATES
-   Restrained, clinical hover/focus behavior for interactive elements
-   that will live inside these panels (buttons, inputs, clickable areas).
+   INTERACTION STATES — CameraView only.
+   Diagnostic Panel controls are styled explicitly below via their own
+   classes (clear-symptoms, run-diagnosis, console-retry,
+   selected-symptom-remove, symptom-search-input) so no generic
+   .diagnostic-panel button/input rule is defined here — a generic rule
+   would out-specificity those explicit component classes.
    -------------------------------------------------------------------- */
-.diagnostic-panel button,
 .camera-view button {
   background-color: var(--color-surface-2);
   border: 1px solid var(--color-border-default);
@@ -166,46 +146,38 @@
     background-color var(--transition-fast);
 }
 
-.diagnostic-panel button:hover,
 .camera-view button:hover {
   background-color: var(--color-surface-3);
   border-color: var(--color-border-strong);
 }
 
-.diagnostic-panel button:focus-visible,
 .camera-view button:focus-visible {
   outline: 2px solid var(--color-accent-primary);
   outline-offset: 2px;
 }
 
-.diagnostic-panel input,
-.diagnostic-panel select,
-.diagnostic-panel textarea {
-  background-color: var(--color-surface-inset);
-  border: 1px solid var(--color-border-default);
-  border-radius: var(--radius-sm);
-  transition: border-color var(--transition-fast);
-}
-
-.diagnostic-panel input:hover,
-.diagnostic-panel select:hover,
-.diagnostic-panel textarea:hover {
-  border-color: var(--color-border-strong);
-}
-
-.diagnostic-panel input:focus,
-.diagnostic-panel select:focus,
-.diagnostic-panel textarea:focus {
-  border-color: var(--color-accent-primary);
-}
-
 /* ==========================================================================
-   DIAGNOSTIC PANEL — SYMPTOM SELECTION UI
+   DIAGNOSTIC PANEL — SYMPTOM SELECTION CONSOLE
    ========================================================================== */
 
 /* --------------------------------------------------------------------
-   HEADER / SUBTITLE
+   CONSOLE HEADER — eyebrow / title / subtitle
    -------------------------------------------------------------------- */
+.diagnostic-console-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.console-eyebrow {
+  font-family: var(--font-family-mono);
+  font-size: 0.65rem;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-disabled);
+}
+
 .diagnostic-header {
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);
@@ -234,28 +206,183 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-text-muted);
+}
+
+/* --------------------------------------------------------------------
+   CONSOLE STATE — loading / error / computing
+   A single readout treatment reused for every system state the panel
+   can be in, differentiated only by accent color and marker behavior.
+   -------------------------------------------------------------------- */
+.console-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin-top: var(--space-3);
+  padding: var(--space-3);
+  background-color: var(--color-surface-inset);
+  border: 1px solid var(--color-border-default);
+  border-left: 2px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.console-state-marker {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.console-state-text {
+  flex: 1;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+.console-retry {
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-family-mono);
+  font-size: 0.65rem;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition-fast),
+    color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.console-retry:hover {
+  background-color: var(--color-surface-2);
+  border-color: var(--color-error);
+  color: var(--color-error);
+}
+
+.console-retry:focus-visible {
+  outline: 2px solid var(--color-accent-primary);
+  outline-offset: 2px;
+}
+
+/* Loading — neutral system state */
+.console-state-loading {
+  border-left-color: var(--color-text-muted);
+}
+
+.console-state-loading .console-state-marker {
+  background-color: var(--color-text-muted);
+  animation: console-marker-blink 1.4s ease-in-out infinite;
+}
+
+/* Error — fault condition */
+.console-state-error {
+  border-left-color: var(--color-error);
+  background-color: color-mix(in srgb, var(--color-error) 8%, var(--color-surface-inset));
+}
+
+.console-state-error .console-state-marker {
+  background-color: var(--color-error);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--color-error) 60%, transparent);
+}
+
+.console-state-error .console-state-text {
+  color: var(--color-error);
+}
+
+/* Computing — active inference in progress */
+.console-state-computing {
+  border-left-color: var(--color-accent-primary);
+}
+
+.console-state-computing .console-state-marker {
+  background-color: var(--color-accent-primary);
+  box-shadow: 0 0 4px rgba(47, 184, 198, 0.6);
+  animation: console-marker-pulse 1.1s ease-in-out infinite;
+}
+
+.console-state-computing .console-state-text {
+  color: var(--color-accent-primary);
+}
+
+@keyframes console-marker-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes console-marker-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .console-state-loading .console-state-marker,
+  .console-state-computing .console-state-marker {
+    animation: none;
+  }
 }
 
 /* --------------------------------------------------------------------
    SYMPTOM SEARCH
-   Recessed input well, system-search appearance.
+   Recessed input well with a system prompt marker, not a plain input.
    -------------------------------------------------------------------- */
 .symptom-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin-top: var(--space-3);
-}
-
-.symptom-search-input {
-  width: 100%;
   background-color: var(--color-surface-inset);
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
+  padding: 0 var(--space-3);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: border-color var(--transition-fast);
+}
+
+.symptom-search:hover {
+  border-color: var(--color-border-strong);
+}
+
+.symptom-search:focus-within {
+  border-color: var(--color-accent-primary);
+}
+
+.symptom-search-marker {
+  flex-shrink: 0;
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-accent-primary);
+}
+
+.symptom-search-marker::before {
+  content: ">";
+}
+
+.symptom-search-input {
+  flex: 1;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: var(--space-2) 0;
   font-family: var(--font-family-mono);
   font-size: var(--font-size-sm);
   color: var(--color-text-primary);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
-  transition: border-color var(--transition-fast);
 }
 
 .symptom-search-input::placeholder {
@@ -263,17 +390,8 @@
   letter-spacing: 0.02em;
 }
 
-.symptom-search-input:hover {
-  border-color: var(--color-border-strong);
-}
-
-.symptom-search-input:focus {
-  border-color: var(--color-accent-primary);
-}
-
 .symptom-search-input:focus-visible {
-  outline: 2px solid var(--color-accent-primary);
-  outline-offset: 2px;
+  outline: none;
 }
 
 /* --------------------------------------------------------------------
@@ -292,6 +410,7 @@
 .symptom-option {
   display: flex;
   align-items: center;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   font-family: var(--font-family-mono);
   font-size: var(--font-size-sm);
@@ -299,7 +418,7 @@
   border-bottom: 1px solid var(--color-border-subtle);
   cursor: pointer;
   transition: background-color var(--transition-fast),
-    color var(--transition-fast);
+    color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .symptom-option:last-child {
@@ -316,6 +435,20 @@
   outline-offset: -2px;
 }
 
+.symptom-option-marker {
+  flex-shrink: 0;
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 2px;
+  transition: background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.symptom-option-label {
+  flex: 1;
+}
+
 .symptom-option-selected,
 .symptom-option-selected:hover {
   background-color: var(--color-accent-primary-muted);
@@ -324,11 +457,32 @@
   padding-left: calc(var(--space-3) - 2px);
 }
 
+.symptom-option-selected .symptom-option-marker {
+  background-color: var(--color-accent-primary);
+  border-color: var(--color-accent-primary);
+}
+
+.symptom-results-empty {
+  padding: var(--space-3);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-text-disabled);
+  text-align: center;
+}
+
 /* --------------------------------------------------------------------
-   SYMPTOM COUNT
+   SYMPTOM ARRAY HEADER / COUNT
    -------------------------------------------------------------------- */
+.symptom-array-header {
+  display: flex;
+  align-items: center;
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
 .symptom-count {
-  margin-top: var(--space-3);
   font-family: var(--font-family-mono);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
@@ -339,7 +493,7 @@
 
 /* --------------------------------------------------------------------
    SELECTED SYMPTOMS
-   Compact technical tags/rows, visually distinct from result list.
+   Rendered as an active diagnostic data array — compact technical rows.
    -------------------------------------------------------------------- */
 .selected-symptoms {
   margin-top: var(--space-2);
@@ -351,7 +505,7 @@
 .selected-symptom {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--space-2);
   background-color: var(--color-surface-2);
   border: 1px solid var(--color-border-default);
   border-left: 2px solid var(--color-accent-primary);
@@ -362,7 +516,21 @@
   color: var(--color-text-primary);
 }
 
+.selected-symptom-marker {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background-color: var(--color-accent-primary);
+}
+
+.selected-symptom-label {
+  flex: 1;
+  letter-spacing: 0.01em;
+}
+
 .selected-symptom-remove {
+  flex-shrink: 0;
   background: none;
   border: none;
   padding: 0 0 0 var(--space-2);
@@ -426,6 +594,10 @@
 
 .run-diagnosis {
   flex: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   background-color: var(--color-accent-primary-muted);
   border: 1px solid var(--color-accent-primary);
   border-radius: var(--radius-sm);
@@ -440,6 +612,14 @@
     box-shadow var(--transition-fast), color var(--transition-fast);
 }
 
+.run-diagnosis-marker {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background-color: currentColor;
+  flex-shrink: 0;
+}
+
 .run-diagnosis:hover:not(:disabled) {
   background-color: var(--color-accent-primary);
   color: var(--color-text-inverse);
@@ -452,6 +632,10 @@
   color: var(--color-text-disabled);
   cursor: not-allowed;
   box-shadow: none;
+}
+
+.run-diagnosis:disabled .run-diagnosis-marker {
+  background-color: var(--color-text-disabled);
 }
 
 .clear-symptoms:focus-visible,
@@ -477,7 +661,16 @@
     flex: none;
     width: 100%;
   }
+
+  .console-state {
+    flex-wrap: wrap;
+  }
+
+  .console-retry {
+    margin-left: auto;
+  }
 }
+
 /* ==========================================================================
    DIAGNOSTIC RESULT
    Machine-output readout panel — recessed instrument bezel, not a card.
