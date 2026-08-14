@@ -1,44 +1,28 @@
-import { useEffect } from 'react';
-import useCamera from '../../hooks/useCamera';
-import useVision from '../../hooks/useVision';
-import useHandTracking from '../../hooks/useHandTracking';
+function CameraView({
+  videoRef,
+  isActive,
+  isLoading,
+  error,
+  startCamera,
+  stopCamera,
 
-function CameraView() {
-  const { videoRef, isActive, isLoading, error, startCamera, stopCamera } = useCamera();
+  isOpenCVReady,
+  isOpenCVLoading,
+  isProcessing,
+  processedFrame,
+  visionError,
+  startProcessing,
+  stopProcessing,
 
-  const {
-    isOpenCVReady,
-    isOpenCVLoading,
-    isProcessing,
-    processedFrame,
-    error: visionError,
-    startProcessing,
-    stopProcessing,
-  } = useVision(videoRef);
-
-  const {
-    isHandLandmarkerReady,
-    isHandLandmarkerLoading,
-    isTracking,
-    error: handTrackingError,
-    hands,
-    indexFingerTips,
-    startTracking,
-    stopTracking,
-  } = useHandTracking(videoRef);
-
-  // Ensure every processing loop and the camera stream are released
-  // together when this view unmounts. Each hook already cleans up its
-  // own internals; this just guarantees ordering at the integration level.
-  useEffect(() => {
-    return () => {
-      stopTracking();
-      stopProcessing();
-      stopCamera();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
+  isHandLandmarkerReady,
+  isHandLandmarkerLoading,
+  isTracking,
+  handTrackingError,
+  hands,
+  indexFingerTips,
+  startTracking,
+  stopTracking,
+}) {
   const handleStartCamera = () => {
     startCamera();
   };
