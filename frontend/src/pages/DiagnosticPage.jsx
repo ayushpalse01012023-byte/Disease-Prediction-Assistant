@@ -82,9 +82,10 @@ function DiagnosticPage() {
         />
 
         <WellnessChallenge
-          indexFingerTips={indexFingerTips}
-          isTracking={isTracking}
-        />
+  videoRef={videoRef}
+  indexFingerTips={indexFingerTips}
+  isTracking={isTracking}
+/>
       </main>
     </AppShell>
   );
