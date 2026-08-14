@@ -231,17 +231,18 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
       */}
       {hasVideoBox && (
         <div
-          className="wellness-challenge__video-overlay"
-          style={{
-            position: 'fixed',
-            top: `${videoRect.top}px`,
-            left: `${videoRect.left}px`,
-            width: `${videoRect.width}px`,
-            height: `${videoRect.height}px`,
-            pointerEvents: 'none',
-          }}
-          aria-hidden="true"
-        >
+  className="wellness-challenge__video-overlay"
+  style={{
+    position: 'fixed',
+    top: `${videoRect.top}px`,
+    left: `${videoRect.left}px`,
+    width: `${videoRect.width}px`,
+    height: `${videoRect.height}px`,
+    pointerEvents: 'none',
+    zIndex: 99999,
+  }}
+  aria-hidden="true"
+>
           {targetPx && (
             <div
               className="wellness-challenge__target"
