@@ -21,7 +21,11 @@ import {
  */
 export default function useHandTracking(
   videoRef,
-  { processIntervalMs = 100, enabled = false } = {}
+  // 33ms (~30fps) balances responsiveness against CPU cost — noticeably
+  // smoother than the previous 100ms (~10fps) default without running
+  // detection on every single render frame. Callers on lower-powered
+  // devices can still pass a larger processIntervalMs to reduce load.
+  { processIntervalMs = 33, enabled = false } = {}
 ) {
   const [isHandLandmarkerReady, setIsHandLandmarkerReady] = useState(false);
   const [isHandLandmarkerLoading, setIsHandLandmarkerLoading] = useState(false);
