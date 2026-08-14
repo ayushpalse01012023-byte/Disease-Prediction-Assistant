@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * WellnessChallenge.jsx
@@ -18,19 +19,20 @@ import { useState, useRef, useEffect, useCallback } from 'react';
  * position/size so it can render a target + fingertip cursor precisely
  * on top of it.
  *
- * The overlay is positioned with `position: fixed`, computed from the
- * video element's real getBoundingClientRect(). This lets the overlay
- * render correctly regardless of where in the component tree
- * WellnessChallenge is mounted relative to CameraView — no changes to
- * CameraView are required.
- *
- * KNOWN ASSUMPTION: position: fixed is relative to the viewport UNLESS
- * an ancestor element has a CSS `transform`, `filter`, `perspective`, or
- * `contain: layout/paint` applied — any of those create a new containing
- * block and would throw off alignment. If AppShell or any wrapper
- * between <body> and this component applies such a style, the overlay
- * will need to switch to being mounted via a portal at the document
- * body, or that ancestor style will need to be removed/adjusted.
+ * WHY A PORTAL:
+ * The overlay is rendered via createPortal directly into document.body,
+ * rather than inline in WellnessChallenge's normal render tree. A
+ * `position: fixed` element is normally positioned relative to the
+ * viewport — UNLESS an ancestor establishes a new containing block
+ * (any ancestor with `transform`, `filter`, `perspective`, or
+ * `contain: layout/paint/content` applied). If WellnessChallenge is
+ * nested under such an ancestor (e.g. inside AppShell's layout), the
+ * "fixed" overlay silently becomes positioned relative to that ancestor
+ * instead of the viewport, making it render off-screen or behind other
+ * content despite a high z-index. Portaling to document.body sidesteps
+ * this entirely: the overlay's containing block is guaranteed to be the
+ * viewport, so getBoundingClientRect()-based coordinates line up
+ * correctly regardless of where WellnessChallenge sits in the tree.
  *
  * No timers, levels, moving targets, dual-hand mode, or scoring beyond
  * a simple counter are implemented yet — those are future phases.
@@ -50,6 +52,11 @@ const HIT_TOLERANCE_PX = 14;
 // to avoid double-flipping the fingertip/target horizontally. Centralized
 // here so it can be adjusted without touching collision or render logic.
 const MIRROR_FINGER_X = true;
+
+// TEMPORARY DEBUG FLAG: forces the target to render with an obvious
+// red/yellow style regardless of state, to confirm the overlay is
+// mounting and positioning correctly. Set to false once confirmed.
+const DEBUG_FORCE_VISIBLE_TARGET = true;
 
 /**
  * Converts a normalized MediaPipe coordinate into pixel coordinates
@@ -145,10 +152,18 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
       observer.observe(videoEl);
     }
 
+    // Video dimensions/position can also settle asynchronously once the
+    // stream actually starts playing (readyState changes), independent
+    // of layout resize events.
+    videoEl.addEventListener('loadedmetadata', updateRect);
+    videoEl.addEventListener('playing', updateRect);
+
     return () => {
       window.removeEventListener('resize', handleWindowChange);
       window.removeEventListener('scroll', handleWindowChange, true);
       if (observer) observer.disconnect();
+      videoEl.removeEventListener('loadedmetadata', updateRect);
+      videoEl.removeEventListener('playing', updateRect);
     };
   }, [videoRef]);
 
@@ -201,6 +216,64 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     ? 'Target hit!'
     : 'Hand detected — move your index finger to the target.';
 
+  // The overlay itself: positioned/sized to match the live video's
+  // real on-screen box, portaled to document.body so `position: fixed`
+  // is always relative to the viewport regardless of ancestor CSS.
+  const overlay = hasVideoBox
+    ? createPortal(
+        <div
+          className="wellness-challenge__video-overlay"
+          style={{
+            position: 'fixed',
+            top: `${videoRect.top}px`,
+            left: `${videoRect.left}px`,
+            width: `${videoRect.width}px`,
+            height: `${videoRect.height}px`,
+            pointerEvents: 'none',
+            zIndex: 999999,
+          }}
+          aria-hidden="true"
+        >
+          {targetPx && (
+            <div
+              className="wellness-challenge__target"
+              style={{
+                position: 'absolute',
+                left: `${targetPx.x}px`,
+                top: `${targetPx.y}px`,
+                width: DEBUG_FORCE_VISIBLE_TARGET ? '60px' : `${TARGET_RADIUS_PX * 2}px`,
+                height: DEBUG_FORCE_VISIBLE_TARGET ? '60px' : `${TARGET_RADIUS_PX * 2}px`,
+                transform: 'translate(-50%, -50%)',
+                ...(DEBUG_FORCE_VISIBLE_TARGET
+                  ? {
+                      backgroundColor: 'red',
+                      border: '5px solid yellow',
+                      borderRadius: '50%',
+                      zIndex: 999999,
+                    }
+                  : {}),
+              }}
+            />
+          )}
+
+          {fingerPx && (
+            <div
+              className="wellness-challenge__finger"
+              style={{
+                position: 'absolute',
+                left: `${fingerPx.x}px`,
+                top: `${fingerPx.y}px`,
+                width: `${FINGER_RADIUS_PX * 2}px`,
+                height: `${FINGER_RADIUS_PX * 2}px`,
+                transform: 'translate(-50%, -50%)',
+              }}
+            />
+          )}
+        </div>,
+        document.body
+      )
+    : null;
+
   return (
     <section className="wellness-challenge" aria-labelledby="wellness-challenge-heading">
       <header className="wellness-challenge__header">
@@ -223,59 +296,7 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
         {statusLabel}
       </p>
 
-      {/*
-        Overlay is fixed-positioned and sized to match the live <video>
-        element's on-screen box exactly, regardless of where this
-        component sits in the DOM relative to CameraView. pointer-events
-        is disabled so it never blocks camera controls underneath it.
-      */}
-      {hasVideoBox && (
-        <div
-  className="wellness-challenge__video-overlay"
-  style={{
-    position: 'fixed',
-    top: `${videoRect.top}px`,
-    left: `${videoRect.left}px`,
-    width: `${videoRect.width}px`,
-    height: `${videoRect.height}px`,
-    pointerEvents: 'none',
-    zIndex: 99999,
-  }}
-  aria-hidden="true"
->
-          {targetPx && (
-            <div
-  className="wellness-challenge__target"
-  style={{
-    position: 'absolute',
-    left: `${targetPx.x}px`,
-    top: `${targetPx.y}px`,
-    width: '60px',
-    height: '60px',
-    transform: 'translate(-50%, -50%)',
-    backgroundColor: 'red',
-    border: '5px solid yellow',
-    borderRadius: '50%',
-    zIndex: 999999,
-  }}
-/>
-          )}
-
-          {fingerPx && (
-            <div
-              className="wellness-challenge__finger"
-              style={{
-                position: 'absolute',
-                left: `${fingerPx.x}px`,
-                top: `${fingerPx.y}px`,
-                width: `${FINGER_RADIUS_PX * 2}px`,
-                height: `${FINGER_RADIUS_PX * 2}px`,
-                transform: 'translate(-50%, -50%)',
-              }}
-            />
-          )}
-        </div>
-      )}
+      {overlay}
     </section>
   );
 }
