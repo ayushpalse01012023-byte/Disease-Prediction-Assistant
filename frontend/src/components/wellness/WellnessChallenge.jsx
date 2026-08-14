@@ -10,11 +10,27 @@ import { useState, useRef, useEffect, useCallback } from 'react';
  * program.
  *
  * This component is intentionally independent of the camera/vision
- * lifecycle. It receives `indexFingerTips` and `isTracking` as props
- * (sourced from useHandTracking via a parent, e.g. DiagnosticPage) and
- * only handles: rendering the challenge arena, converting normalized
- * fingertip coordinates into arena pixel space, rendering a target +
- * fingertip cursor, detecting collisions, and tracking score.
+ * lifecycle. It receives `videoRef` (the SAME ref owned and populated by
+ * DiagnosticPage's useCamera() and rendered by CameraView), plus
+ * `indexFingerTips` and `isTracking` from useHandTracking. It does NOT
+ * create its own camera stream, its own <video> element, or its own
+ * MediaPipe instance — it only reads the live video element's on-screen
+ * position/size so it can render a target + fingertip cursor precisely
+ * on top of it.
+ *
+ * The overlay is positioned with `position: fixed`, computed from the
+ * video element's real getBoundingClientRect(). This lets the overlay
+ * render correctly regardless of where in the component tree
+ * WellnessChallenge is mounted relative to CameraView — no changes to
+ * CameraView are required.
+ *
+ * KNOWN ASSUMPTION: position: fixed is relative to the viewport UNLESS
+ * an ancestor element has a CSS `transform`, `filter`, `perspective`, or
+ * `contain: layout/paint` applied — any of those create a new containing
+ * block and would throw off alignment. If AppShell or any wrapper
+ * between <body> and this component applies such a style, the overlay
+ * will need to switch to being mounted via a portal at the document
+ * body, or that ancestor style will need to be removed/adjusted.
  *
  * No timers, levels, moving targets, dual-hand mode, or scoring beyond
  * a simple counter are implemented yet — those are future phases.
@@ -29,28 +45,35 @@ const FINGER_RADIUS_PX = 10;
 // visual radii above.
 const HIT_TOLERANCE_PX = 14;
 
+// If CameraView's CSS already mirrors the <video> element itself (e.g.
+// `transform: scaleX(-1)` for a natural "mirror" UX), set this to false
+// to avoid double-flipping the fingertip/target horizontally. Centralized
+// here so it can be adjusted without touching collision or render logic.
+const MIRROR_FINGER_X = true;
+
 /**
- * Converts a normalized MediaPipe coordinate into arena pixel space.
+ * Converts a normalized MediaPipe coordinate into pixel coordinates
+ * relative to the overlay (which is sized/positioned to exactly match
+ * the live video element via getBoundingClientRect).
  *
  * Isolated on purpose: MediaPipe's coordinate origin/orientation and
- * any mirroring correction (front-facing webcam feeds are typically
- * mirrored for a "natural" UX) can be adjusted here later without
- * touching collision detection, rendering, or game logic.
+ * any mirroring correction can be adjusted here later without touching
+ * collision detection, rendering, or game logic.
  *
  * @param {{x:number,y:number}} normalizedPoint
- * @param {{width:number,height:number}} arenaSize
+ * @param {{width:number,height:number}} overlaySize
  * @param {{mirrorX?:boolean}} [options]
- * @returns {{x:number,y:number}} pixel coordinates within the arena
+ * @returns {{x:number,y:number}} pixel coordinates within the overlay
  */
-function normalizedToArenaCoords(normalizedPoint, arenaSize, { mirrorX = true } = {}) {
+function normalizedToOverlayCoords(normalizedPoint, overlaySize, { mirrorX = MIRROR_FINGER_X } = {}) {
   const clampedX = Math.min(Math.max(normalizedPoint.x, 0), 1);
   const clampedY = Math.min(Math.max(normalizedPoint.y, 0), 1);
 
   const effectiveX = mirrorX ? 1 - clampedX : clampedX;
 
   return {
-    x: effectiveX * arenaSize.width,
-    y: clampedY * arenaSize.height,
+    x: effectiveX * overlaySize.width,
+    y: clampedY * overlaySize.height,
   };
 }
 
@@ -68,7 +91,7 @@ function generateRandomTarget() {
 
 /**
  * Euclidean distance-based collision check between the fingertip and
- * the target, both already converted to arena pixel space.
+ * the target, both already converted to overlay pixel space.
  */
 function isCollision(fingerPx, targetPx, targetRadiusPx, toleranceCPx) {
   const dx = fingerPx.x - targetPx.x;
@@ -77,9 +100,10 @@ function isCollision(fingerPx, targetPx, targetRadiusPx, toleranceCPx) {
   return distance <= targetRadiusPx + toleranceCPx;
 }
 
-function WellnessChallenge({ indexFingerTips = [], isTracking = false }) {
-  const arenaRef = useRef(null);
-  const [arenaSize, setArenaSize] = useState({ width: 0, height: 0 });
+function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false }) {
+  // Tracks the live video element's on-screen box (viewport-relative),
+  // so the overlay can be sized/positioned to match it exactly.
+  const [videoRect, setVideoRect] = useState({ top: 0, left: 0, width: 0, height: 0 });
 
   const [score, setScore] = useState(0);
   const [target, setTarget] = useState(() => generateRandomTarget());
@@ -89,37 +113,44 @@ function WellnessChallenge({ indexFingerTips = [], isTracking = false }) {
   // lingers inside the target before a new target is generated.
   const hitLockRef = useRef(false);
 
-  // Measure the arena's actual rendered size so normalized coordinates
-  // can be converted responsively, regardless of container size.
+  // Keep videoRect in sync with the video element's actual rendered
+  // position/size — it can change on window resize, layout shifts,
+  // scrolling, or when the camera stream starts and the video gains
+  // its natural dimensions.
   useEffect(() => {
-    const arenaEl = arenaRef.current;
-    if (!arenaEl) return undefined;
+    const videoEl = videoRef?.current;
+    if (!videoEl) return undefined;
 
-    const updateSize = (entry) => {
-      const { width, height } = entry
-        ? entry.contentRect
-        : arenaEl.getBoundingClientRect();
-      setArenaSize({ width, height });
+    const updateRect = () => {
+      const rect = videoEl.getBoundingClientRect();
+      setVideoRect({
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+      });
     };
 
-    updateSize();
+    updateRect();
 
-    if (typeof ResizeObserver === 'undefined') {
-      // Fallback for environments without ResizeObserver support.
-      // Store the handler reference so it can be correctly removed.
-      const handleResize = () => updateSize();
-      window.addEventListener('resize', handleResize);
+    const handleWindowChange = () => updateRect();
+    window.addEventListener('resize', handleWindowChange);
+    // capture: true so scrolling on any nested scrollable ancestor
+    // (not just the window) also triggers a recompute.
+    window.addEventListener('scroll', handleWindowChange, true);
 
-      return () => {
-        window.removeEventListener('resize', handleResize);
-      };
+    let observer;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => updateRect());
+      observer.observe(videoEl);
     }
 
-    const observer = new ResizeObserver(([entry]) => updateSize(entry));
-    observer.observe(arenaEl);
-
-    return () => observer.disconnect();
-  }, []);
+    return () => {
+      window.removeEventListener('resize', handleWindowChange);
+      window.removeEventListener('scroll', handleWindowChange, true);
+      if (observer) observer.disconnect();
+    };
+  }, [videoRef]);
 
   const activeFingerTip = indexFingerTips?.[0] || null;
 
@@ -136,10 +167,10 @@ function WellnessChallenge({ indexFingerTips = [], isTracking = false }) {
 
   // Run collision detection whenever a new fingertip position arrives.
   useEffect(() => {
-    if (!activeFingerTip || !arenaSize.width || !arenaSize.height) return;
+    if (!activeFingerTip || !videoRect.width || !videoRect.height) return;
 
-    const fingerPx = normalizedToArenaCoords(activeFingerTip, arenaSize);
-    const targetPx = normalizedToArenaCoords(target, arenaSize);
+    const fingerPx = normalizedToOverlayCoords(activeFingerTip, videoRect);
+    const targetPx = normalizedToOverlayCoords(target, videoRect);
 
     const hit = isCollision(fingerPx, targetPx, TARGET_RADIUS_PX, HIT_TOLERANCE_PX);
 
@@ -150,14 +181,16 @@ function WellnessChallenge({ indexFingerTips = [], isTracking = false }) {
       hitLockRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFingerTip, arenaSize, target]);
+  }, [activeFingerTip, videoRect, target]);
 
-  const fingerPx = activeFingerTip && arenaSize.width
-    ? normalizedToArenaCoords(activeFingerTip, arenaSize)
+  const hasVideoBox = videoRect.width > 0 && videoRect.height > 0;
+
+  const fingerPx = activeFingerTip && hasVideoBox
+    ? normalizedToOverlayCoords(activeFingerTip, videoRect)
     : null;
 
-  const targetPx = arenaSize.width
-    ? normalizedToArenaCoords(target, arenaSize)
+  const targetPx = hasVideoBox
+    ? normalizedToOverlayCoords(target, videoRect)
     : null;
 
   const statusLabel = !isTracking
@@ -190,41 +223,54 @@ function WellnessChallenge({ indexFingerTips = [], isTracking = false }) {
         {statusLabel}
       </p>
 
-      <div className="wellness-challenge__arena" ref={arenaRef}>
-        {targetPx && (
-          <div
-            className="wellness-challenge__target"
-            style={{
-              left: `${targetPx.x}px`,
-              top: `${targetPx.y}px`,
-              width: `${TARGET_RADIUS_PX * 2}px`,
-              height: `${TARGET_RADIUS_PX * 2}px`,
-              transform: 'translate(-50%, -50%)',
-            }}
-            aria-hidden="true"
-          />
-        )}
+      {/*
+        Overlay is fixed-positioned and sized to match the live <video>
+        element's on-screen box exactly, regardless of where this
+        component sits in the DOM relative to CameraView. pointer-events
+        is disabled so it never blocks camera controls underneath it.
+      */}
+      {hasVideoBox && (
+        <div
+          className="wellness-challenge__video-overlay"
+          style={{
+            position: 'fixed',
+            top: `${videoRect.top}px`,
+            left: `${videoRect.left}px`,
+            width: `${videoRect.width}px`,
+            height: `${videoRect.height}px`,
+            pointerEvents: 'none',
+          }}
+          aria-hidden="true"
+        >
+          {targetPx && (
+            <div
+              className="wellness-challenge__target"
+              style={{
+                position: 'absolute',
+                left: `${targetPx.x}px`,
+                top: `${targetPx.y}px`,
+                width: `${TARGET_RADIUS_PX * 2}px`,
+                height: `${TARGET_RADIUS_PX * 2}px`,
+                transform: 'translate(-50%, -50%)',
+              }}
+            />
+          )}
 
-        {fingerPx && (
-          <div
-            className="wellness-challenge__finger"
-            style={{
-              left: `${fingerPx.x}px`,
-              top: `${fingerPx.y}px`,
-              width: `${FINGER_RADIUS_PX * 2}px`,
-              height: `${FINGER_RADIUS_PX * 2}px`,
-              transform: 'translate(-50%, -50%)',
-            }}
-            aria-hidden="true"
-          />
-        )}
-
-        {!isTracking && (
-          <p className="wellness-challenge__arena-placeholder">
-            Hand tracking is not active. Start hand tracking to begin.
-          </p>
-        )}
-      </div>
+          {fingerPx && (
+            <div
+              className="wellness-challenge__finger"
+              style={{
+                position: 'absolute',
+                left: `${fingerPx.x}px`,
+                top: `${fingerPx.y}px`,
+                width: `${FINGER_RADIUS_PX * 2}px`,
+                height: `${FINGER_RADIUS_PX * 2}px`,
+                transform: 'translate(-50%, -50%)',
+              }}
+            />
+          )}
+        </div>
+      )}
     </section>
   );
 }
