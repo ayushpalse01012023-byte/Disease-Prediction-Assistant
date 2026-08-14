@@ -2,92 +2,48 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
- * WellnessChallenge.jsx
+ * WellnessChallenge.jsx — Phase 1.
  *
- * AI Wellness Challenge — Phase 1 foundation.
+ * Independent of the camera/vision lifecycle. Receives the SAME
+ * videoRef owned by DiagnosticPage's useCamera() (rendered by
+ * CameraView), plus indexFingerTips/isTracking from useHandTracking.
+ * Creates no camera stream, no <video>, no MediaPipe instance.
  *
- * An interactive hand-eye coordination exercise designed for engagement
- * and general wellness. It is not a medical treatment or rehabilitation
- * program.
+ * Overlay is portaled to document.body so `position: fixed` is always
+ * viewport-relative, regardless of ancestor transforms/filters/contain.
  *
- * This component is intentionally independent of the camera/vision
- * lifecycle. It receives `videoRef` (the SAME ref owned and populated by
- * DiagnosticPage's useCamera() and rendered by CameraView), plus
- * `indexFingerTips` and `isTracking` from useHandTracking. It does NOT
- * create its own camera stream, its own <video> element, or its own
- * MediaPipe instance — it only reads the live video element's on-screen
- * position/size so it can render a target + fingertip cursor precisely
- * on top of it.
- *
- * WHY A PORTAL:
- * The overlay is rendered via createPortal directly into document.body,
- * rather than inline in WellnessChallenge's normal render tree. A
- * `position: fixed` element is normally positioned relative to the
- * viewport — UNLESS an ancestor establishes a new containing block
- * (any ancestor with `transform`, `filter`, `perspective`, or
- * `contain: layout/paint/content` applied). If WellnessChallenge is
- * nested under such an ancestor (e.g. inside AppShell's layout), the
- * "fixed" overlay silently becomes positioned relative to that ancestor
- * instead of the viewport, making it render off-screen or behind other
- * content despite a high z-index. Portaling to document.body sidesteps
- * this entirely: the overlay's containing block is guaranteed to be the
- * viewport, so getBoundingClientRect()-based coordinates line up
- * correctly regardless of where WellnessChallenge sits in the tree.
- *
- * No timers, levels, moving targets, dual-hand mode, or scoring beyond
- * a simple counter are implemented yet — those are future phases.
+ * ROOT CAUSE THIS FIXES: the previous version only computed videoRect
+ * inside a useEffect gated on videoRef.current being non-null AT THE
+ * MOMENT THE EFFECT RAN, refreshed only by specific DOM events. If the
+ * video element wasn't ready then (or videoRef didn't arrive as a prop
+ * at all), videoRect silently stayed {0,0,0,0} forever and nothing
+ * rendered — no error, no visible symptom besides "nothing shows up."
+ * Polling with requestAnimationFrame removes the timing dependency
+ * entirely: as soon as videoRef.current exists and has a real box, the
+ * overlay picks it up on the next frame, no matter when that happens.
  */
 
-// Keep targets away from the extreme edges so they remain easy to hit.
-const TARGET_MARGIN = 0.12; // normalized (0-1) inset from each edge
+const TARGET_MARGIN = 0.12;
 const TARGET_RADIUS_PX = 28;
 const FINGER_RADIUS_PX = 10;
-// Hit tolerance accounts for the visual size mismatch between the
-// fingertip cursor and the target — tune this independently of the
-// visual radii above.
 const HIT_TOLERANCE_PX = 14;
 
-// If CameraView's CSS already mirrors the <video> element itself (e.g.
-// `transform: scaleX(-1)` for a natural "mirror" UX), set this to false
-// to avoid double-flipping the fingertip/target horizontally. Centralized
-// here so it can be adjusted without touching collision or render logic.
+// Set false if CameraView's CSS already mirrors the <video> itself
+// (e.g. transform: scaleX(-1)) — otherwise you'd double-flip.
 const MIRROR_FINGER_X = true;
 
-// TEMPORARY DEBUG FLAG: forces the target to render with an obvious
-// red/yellow style regardless of state, to confirm the overlay is
-// mounting and positioning correctly. Set to false once confirmed.
+// TEMPORARY: obvious styling to confirm the overlay renders at all.
+// Set to false once you've visually confirmed it, then style properly
+// via components.css (.wellness-challenge__target / __finger).
 const DEBUG_FORCE_VISIBLE_TARGET = true;
 
-/**
- * Converts a normalized MediaPipe coordinate into pixel coordinates
- * relative to the overlay (which is sized/positioned to exactly match
- * the live video element via getBoundingClientRect).
- *
- * Isolated on purpose: MediaPipe's coordinate origin/orientation and
- * any mirroring correction can be adjusted here later without touching
- * collision detection, rendering, or game logic.
- *
- * @param {{x:number,y:number}} normalizedPoint
- * @param {{width:number,height:number}} overlaySize
- * @param {{mirrorX?:boolean}} [options]
- * @returns {{x:number,y:number}} pixel coordinates within the overlay
- */
-function normalizedToOverlayCoords(normalizedPoint, overlaySize, { mirrorX = MIRROR_FINGER_X } = {}) {
-  const clampedX = Math.min(Math.max(normalizedPoint.x, 0), 1);
-  const clampedY = Math.min(Math.max(normalizedPoint.y, 0), 1);
-
-  const effectiveX = mirrorX ? 1 - clampedX : clampedX;
-
-  return {
-    x: effectiveX * overlaySize.width,
-    y: clampedY * overlaySize.height,
-  };
+function normalizedToOverlayCoords(point, size, { mirrorX = MIRROR_FINGER_X } = {}) {
+  const cx = Math.min(Math.max(point.x, 0), 1);
+  const cy = Math.min(Math.max(point.y, 0), 1);
+  const ex = mirrorX ? 1 - cx : cx;
+  return { x: ex * size.width, y: cy * size.height };
 }
 
-/**
- * Generates a new random target position in normalized (0-1) space,
- * inset from the edges by TARGET_MARGIN so targets stay reachable.
- */
 function generateRandomTarget() {
   const range = 1 - TARGET_MARGIN * 2;
   return {
@@ -96,74 +52,63 @@ function generateRandomTarget() {
   };
 }
 
-/**
- * Euclidean distance-based collision check between the fingertip and
- * the target, both already converted to overlay pixel space.
- */
-function isCollision(fingerPx, targetPx, targetRadiusPx, toleranceCPx) {
+function isCollision(fingerPx, targetPx, radiusPx, tolerancePx) {
   const dx = fingerPx.x - targetPx.x;
   const dy = fingerPx.y - targetPx.y;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-  return distance <= targetRadiusPx + toleranceCPx;
+  return Math.sqrt(dx * dx + dy * dy) <= radiusPx + tolerancePx;
 }
 
 function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false }) {
-  // Tracks the live video element's on-screen box (viewport-relative),
-  // so the overlay can be sized/positioned to match it exactly.
   const [videoRect, setVideoRect] = useState({ top: 0, left: 0, width: 0, height: 0 });
-
   const [score, setScore] = useState(0);
   const [target, setTarget] = useState(() => generateRandomTarget());
   const [targetHit, setTargetHit] = useState(false);
 
-  // Prevents re-triggering a hit on every frame while the fingertip
-  // lingers inside the target before a new target is generated.
   const hitLockRef = useRef(false);
+  const rafIdRef = useRef(null);
+  const lastRectRef = useRef({ top: 0, left: 0, width: 0, height: 0 });
+  const warnedRef = useRef(false);
 
-  // Keep videoRect in sync with the video element's actual rendered
-  // position/size — it can change on window resize, layout shifts,
-  // scrolling, or when the camera stream starts and the video gains
-  // its natural dimensions.
+  // TEMPORARY diagnostic: fires once if videoRef never resolves.
+  // Remove once the root cause is confirmed fixed.
   useEffect(() => {
-    const videoEl = videoRef?.current;
-    if (!videoEl) return undefined;
+    if (!videoRef && !warnedRef.current) {
+      warnedRef.current = true;
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[WellnessChallenge] No videoRef prop was received. ' +
+        'Check that DiagnosticPage passes videoRef={videoRef} to <WellnessChallenge />.'
+      );
+    }
+  }, [videoRef]);
 
-    const updateRect = () => {
-      const rect = videoEl.getBoundingClientRect();
-      setVideoRect({
-        top: rect.top,
-        left: rect.left,
-        width: rect.width,
-        height: rect.height,
-      });
+  const rectsEqual = (a, b) =>
+    a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
+
+  // Self-healing rect tracking: polls every animation frame instead of
+  // relying solely on events, so it works regardless of when the video
+  // element becomes available or resized.
+  useEffect(() => {
+    const poll = () => {
+      const videoEl = videoRef?.current;
+      if (videoEl) {
+        const r = videoEl.getBoundingClientRect();
+        const next = { top: r.top, left: r.left, width: r.width, height: r.height };
+        if (!rectsEqual(next, lastRectRef.current)) {
+          lastRectRef.current = next;
+          setVideoRect(next);
+        }
+      }
+      rafIdRef.current = requestAnimationFrame(poll);
     };
 
-    updateRect();
-
-    const handleWindowChange = () => updateRect();
-    window.addEventListener('resize', handleWindowChange);
-    // capture: true so scrolling on any nested scrollable ancestor
-    // (not just the window) also triggers a recompute.
-    window.addEventListener('scroll', handleWindowChange, true);
-
-    let observer;
-    if (typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(() => updateRect());
-      observer.observe(videoEl);
-    }
-
-    // Video dimensions/position can also settle asynchronously once the
-    // stream actually starts playing (readyState changes), independent
-    // of layout resize events.
-    videoEl.addEventListener('loadedmetadata', updateRect);
-    videoEl.addEventListener('playing', updateRect);
+    rafIdRef.current = requestAnimationFrame(poll);
 
     return () => {
-      window.removeEventListener('resize', handleWindowChange);
-      window.removeEventListener('scroll', handleWindowChange, true);
-      if (observer) observer.disconnect();
-      videoEl.removeEventListener('loadedmetadata', updateRect);
-      videoEl.removeEventListener('playing', updateRect);
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
     };
   }, [videoRef]);
 
@@ -173,20 +118,15 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     setScore((prev) => prev + 1);
     setTargetHit(true);
     setTarget(generateRandomTarget());
-
-    // Briefly surface the "hit" state, then clear it so the status
-    // text returns to normal guidance for the next target.
-    const clearHitTimeout = setTimeout(() => setTargetHit(false), 600);
-    return () => clearTimeout(clearHitTimeout);
+    const t = setTimeout(() => setTargetHit(false), 600);
+    return () => clearTimeout(t);
   }, []);
 
-  // Run collision detection whenever a new fingertip position arrives.
   useEffect(() => {
     if (!activeFingerTip || !videoRect.width || !videoRect.height) return;
 
     const fingerPx = normalizedToOverlayCoords(activeFingerTip, videoRect);
     const targetPx = normalizedToOverlayCoords(target, videoRect);
-
     const hit = isCollision(fingerPx, targetPx, TARGET_RADIUS_PX, HIT_TOLERANCE_PX);
 
     if (hit && !hitLockRef.current) {
@@ -204,11 +144,13 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     ? normalizedToOverlayCoords(activeFingerTip, videoRect)
     : null;
 
-  const targetPx = hasVideoBox
-    ? normalizedToOverlayCoords(target, videoRect)
-    : null;
+  const targetPx = hasVideoBox ? normalizedToOverlayCoords(target, videoRect) : null;
 
-  const statusLabel = !isTracking
+  const statusLabel = !videoRef
+    ? 'Camera video reference not connected.'
+    : !hasVideoBox
+    ? 'Waiting for camera video to render…'
+    : !isTracking
     ? 'Waiting for hand tracking to start…'
     : !activeFingerTip
     ? 'Hand tracking active — show your hand to the camera.'
@@ -216,9 +158,6 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     ? 'Target hit!'
     : 'Hand detected — move your index finger to the target.';
 
-  // The overlay itself: positioned/sized to match the live video's
-  // real on-screen box, portaled to document.body so `position: fixed`
-  // is always relative to the viewport regardless of ancestor CSS.
   const overlay = hasVideoBox
     ? createPortal(
         <div
@@ -288,11 +227,7 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
         Score: <span className="wellness-challenge__score-value">{score}</span>
       </div>
 
-      <p
-        className="wellness-challenge__status"
-        role="status"
-        aria-live="polite"
-      >
+      <p className="wellness-challenge__status" role="status" aria-live="polite">
         {statusLabel}
       </p>
 
