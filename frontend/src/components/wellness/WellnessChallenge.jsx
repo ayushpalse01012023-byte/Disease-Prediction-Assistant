@@ -175,6 +175,10 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   const hitLockRef = useRef(false);
   const rafIdRef = useRef(null);
   const lastTransformRef = useRef(null);
+  // Tracks the pending "target hit" flash timeout so it can be
+  // superseded (instead of stacking) on rapid consecutive hits, and
+  // cancelled on unmount to avoid a setState-after-unmount warning.
+  const targetHitTimeoutRef = useRef(null);
 
   const transformsEqual = (a, b) => {
     if (!a || !b) return a === b;
@@ -225,8 +229,16 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     setTargetHit(true);
     setTarget(generateRandomTarget());
 
-    const clearHitTimeout = setTimeout(() => setTargetHit(false), 600);
-    return () => clearTimeout(clearHitTimeout);
+    // Clear any previously-pending "target hit" timeout before
+    // starting a new one, so overlapping timers can't stack up, and
+    // so this timer can be reliably cancelled on unmount.
+    if (targetHitTimeoutRef.current !== null) {
+      clearTimeout(targetHitTimeoutRef.current);
+    }
+    targetHitTimeoutRef.current = setTimeout(() => {
+      setTargetHit(false);
+      targetHitTimeoutRef.current = null;
+    }, 600);
   }, []);
 
   // Run collision detection whenever a new fingertip position arrives.
@@ -248,6 +260,17 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFingerTip, displayTransform, target]);
+
+  // Cancel any pending "target hit" flash timeout on unmount to avoid
+  // calling setState on an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (targetHitTimeoutRef.current !== null) {
+        clearTimeout(targetHitTimeoutRef.current);
+        targetHitTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const hasVideoBox = !!displayTransform && displayTransform.width > 0 && displayTransform.height > 0;
 
