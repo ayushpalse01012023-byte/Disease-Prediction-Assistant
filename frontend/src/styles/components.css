@@ -930,3 +930,120 @@
       30px 0 0 0 var(--color-surface-2);
   }
 }
+/* ==========================================================================
+   WELLNESS CHALLENGE
+   Hand-eye coordination target overlay
+   ========================================================================== */
+
+.wellness-challenge {
+  background-color: var(--color-surface-1);
+  border-top: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+}
+
+.wellness-challenge__header h2 {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.wellness-challenge__disclaimer {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.wellness-challenge__score {
+  margin-top: var(--space-3);
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.wellness-challenge__score-value {
+  color: var(--color-accent-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.wellness-challenge__status {
+  font-family: var(--font-family-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   VIDEO OVERLAY
+   -------------------------------------------------------------------------- */
+
+.wellness-challenge__video-overlay {
+  z-index: 9999;
+}
+
+/* --------------------------------------------------------------------------
+   TARGET
+   -------------------------------------------------------------------------- */
+
+.wellness-challenge__target {
+  box-sizing: border-box;
+  border: 3px solid var(--color-accent-primary);
+  border-radius: 50%;
+  background-color: rgba(47, 184, 198, 0.18);
+  box-shadow:
+    0 0 0 4px rgba(47, 184, 198, 0.12),
+    0 0 14px rgba(47, 184, 198, 0.7);
+
+  animation: wellness-target-pulse 1.2s ease-in-out infinite;
+}
+
+/* Small center point */
+.wellness-challenge__target::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background-color: var(--color-accent-primary);
+  box-shadow: 0 0 8px rgba(47, 184, 198, 0.9);
+}
+
+/* --------------------------------------------------------------------------
+   FINGERTIP CURSOR
+   -------------------------------------------------------------------------- */
+
+.wellness-challenge__finger {
+  box-sizing: border-box;
+  border: 2px solid var(--color-text-primary);
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.25);
+  box-shadow:
+    0 0 8px rgba(255, 255, 255, 0.7),
+    0 0 14px rgba(47, 184, 198, 0.5);
+}
+
+/* --------------------------------------------------------------------------
+   TARGET ANIMATION
+   -------------------------------------------------------------------------- */
+
+@keyframes wellness-target-pulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: translate(-50%, -50%) scale(1.12);
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wellness-challenge__target {
+    animation: none;
+  }
+}
