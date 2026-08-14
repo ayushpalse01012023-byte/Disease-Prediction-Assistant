@@ -9,41 +9,142 @@ import { createPortal } from 'react-dom';
  * CameraView), plus indexFingerTips/isTracking from useHandTracking.
  * Creates no camera stream, no <video>, no MediaPipe instance.
  *
- * Overlay is portaled to document.body so `position: fixed` is always
- * viewport-relative, regardless of ancestor transforms/filters/contain.
+ * COORDINATE MAPPING:
+ * MediaPipe's normalized (x, y) coordinates always describe a position
+ * within the video's raw, decoded frame (videoWidth x videoHeight) —
+ * CSS never affects what MediaPipe reads. To place the overlay
+ * correctly on screen, we must map that raw-frame position into the
+ * video element's actual rendered box, accounting for:
  *
- * ROOT CAUSE THIS FIXES: the previous version only computed videoRect
- * inside a useEffect gated on videoRef.current being non-null AT THE
- * MOMENT THE EFFECT RAN, refreshed only by specific DOM events. If the
- * video element wasn't ready then (or videoRef didn't arrive as a prop
- * at all), videoRect silently stayed {0,0,0,0} forever and nothing
- * rendered — no error, no visible symptom besides "nothing shows up."
- * Polling with requestAnimationFrame removes the timing dependency
- * entirely: as soon as videoRef.current exists and has a real box, the
- * overlay picks it up on the next frame, no matter when that happens.
+ *   1. object-fit (cover/contain/none/fill) — if the rendered box's
+ *      aspect ratio differs from the video's natural aspect ratio,
+ *      the browser scales/crops/letterboxes the image, so the visible
+ *      content rect is NOT simply the element's bounding box.
+ *   2. CSS mirroring (e.g. transform: scaleX(-1)) — if the video is
+ *      visually mirrored for a natural "selfie" look, the overlay must
+ *      mirror too, or it will track the opposite side of the frame.
+ *
+ * Both are detected from the video element's actual computed style at
+ * runtime (via computeVideoDisplayTransform), rather than hardcoded,
+ * so this stays correct even if CameraView's CSS changes later.
  */
 
-const TARGET_MARGIN = 0.12;
+const TARGET_MARGIN = 0.12; // normalized (0-1) inset from each edge
 const TARGET_RADIUS_PX = 28;
 const FINGER_RADIUS_PX = 10;
 const HIT_TOLERANCE_PX = 14;
 
-// Set false if CameraView's CSS already mirrors the <video> itself
-// (e.g. transform: scaleX(-1)) — otherwise you'd double-flip.
-const MIRROR_FINGER_X = true;
+/**
+ * Computes how the video's natural (decoded) frame maps onto its
+ * actual rendered CSS box: scale, offset (for letterboxing/cropping),
+ * and whether it's horizontally mirrored — all read from the element's
+ * real computed style, not assumed.
+ *
+ * @param {HTMLVideoElement} videoEl
+ * @returns {{top:number,left:number,width:number,height:number,naturalWidth:number,naturalHeight:number,scaleX:number,scaleY:number,offsetX:number,offsetY:number,mirrored:boolean}}
+ */
+function computeVideoDisplayTransform(videoEl) {
+  const boxRect = videoEl.getBoundingClientRect();
+  const naturalWidth = videoEl.videoWidth;
+  const naturalHeight = videoEl.videoHeight;
 
-// TEMPORARY: obvious styling to confirm the overlay renders at all.
-// Set to false once you've visually confirmed it, then style properly
-// via components.css (.wellness-challenge__target / __finger).
-const DEBUG_FORCE_VISIBLE_TARGET = true;
+  const base = {
+    top: boxRect.top,
+    left: boxRect.left,
+    width: boxRect.width,
+    height: boxRect.height,
+    naturalWidth: naturalWidth || boxRect.width,
+    naturalHeight: naturalHeight || boxRect.height,
+    scaleX: 1,
+    scaleY: 1,
+    offsetX: 0,
+    offsetY: 0,
+    mirrored: false,
+  };
 
-function normalizedToOverlayCoords(point, size, { mirrorX = MIRROR_FINGER_X } = {}) {
-  const cx = Math.min(Math.max(point.x, 0), 1);
-  const cy = Math.min(Math.max(point.y, 0), 1);
-  const ex = mirrorX ? 1 - cx : cx;
-  return { x: ex * size.width, y: cy * size.height };
+  if (!boxRect.width || !boxRect.height || !naturalWidth || !naturalHeight) {
+    return base;
+  }
+
+  // Detect horizontal mirroring from the video's actual computed
+  // transform, rather than assuming it. MediaPipe's coordinates are
+  // always relative to the unmirrored raw frame, so if (and only if)
+  // the video is visually mirrored via CSS, the overlay needs to
+  // mirror too to match what's on screen.
+  let mirrored = false;
+  try {
+    const computedTransform = window.getComputedStyle(videoEl).transform;
+    if (computedTransform && computedTransform !== 'none') {
+      const matrix = new DOMMatrixReadOnly(computedTransform);
+      mirrored = matrix.a < 0;
+    }
+  } catch {
+    mirrored = false;
+  }
+
+  let objectFit = 'fill';
+  try {
+    objectFit = window.getComputedStyle(videoEl).objectFit || 'fill';
+  } catch {
+    objectFit = 'fill';
+  }
+
+  let scaleX;
+  let scaleY;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  if (objectFit === 'cover') {
+    const scale = Math.max(boxRect.width / naturalWidth, boxRect.height / naturalHeight);
+    scaleX = scale;
+    scaleY = scale;
+    offsetX = (boxRect.width - naturalWidth * scale) / 2;
+    offsetY = (boxRect.height - naturalHeight * scale) / 2;
+  } else if (objectFit === 'contain') {
+    const scale = Math.min(boxRect.width / naturalWidth, boxRect.height / naturalHeight);
+    scaleX = scale;
+    scaleY = scale;
+    offsetX = (boxRect.width - naturalWidth * scale) / 2;
+    offsetY = (boxRect.height - naturalHeight * scale) / 2;
+  } else if (objectFit === 'none') {
+    scaleX = 1;
+    scaleY = 1;
+    offsetX = (boxRect.width - naturalWidth) / 2;
+    offsetY = (boxRect.height - naturalHeight) / 2;
+  } else {
+    // 'fill' — the native <video> stretch behavior when no object-fit
+    // is set (confirmed: components.css defines no object-fit rule
+    // for .camera-viewport video), non-uniform scale, no offset.
+    scaleX = boxRect.width / naturalWidth;
+    scaleY = boxRect.height / naturalHeight;
+  }
+
+  return { ...base, scaleX, scaleY, offsetX, offsetY, mirrored };
 }
 
+/**
+ * Converts a normalized MediaPipe coordinate into overlay pixel space
+ * using the video's real display transform (mirror + object-fit aware).
+ */
+function normalizedToOverlayCoords(point, transform) {
+  const clampedX = Math.min(Math.max(point.x, 0), 1);
+  const clampedY = Math.min(Math.max(point.y, 0), 1);
+
+  const effectiveX = transform.mirrored ? 1 - clampedX : clampedX;
+
+  const naturalX = effectiveX * transform.naturalWidth;
+  const naturalY = clampedY * transform.naturalHeight;
+
+  return {
+    x: transform.offsetX + naturalX * transform.scaleX,
+    y: transform.offsetY + naturalY * transform.scaleY,
+  };
+}
+
+/**
+ * Generates a new random target position in normalized (0-1) space,
+ * inset from the edges by TARGET_MARGIN so targets stay reachable.
+ */
 function generateRandomTarget() {
   const range = 1 - TARGET_MARGIN * 2;
   return {
@@ -52,6 +153,10 @@ function generateRandomTarget() {
   };
 }
 
+/**
+ * Euclidean distance-based collision check between the fingertip and
+ * the target, both already converted to overlay pixel space.
+ */
 function isCollision(fingerPx, targetPx, radiusPx, tolerancePx) {
   const dx = fingerPx.x - targetPx.x;
   const dy = fingerPx.y - targetPx.y;
@@ -59,44 +164,45 @@ function isCollision(fingerPx, targetPx, radiusPx, tolerancePx) {
 }
 
 function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false }) {
-  const [videoRect, setVideoRect] = useState({ top: 0, left: 0, width: 0, height: 0 });
+  const [displayTransform, setDisplayTransform] = useState(null);
+
   const [score, setScore] = useState(0);
   const [target, setTarget] = useState(() => generateRandomTarget());
   const [targetHit, setTargetHit] = useState(false);
 
+  // Prevents re-triggering a hit on every frame while the fingertip
+  // lingers inside the target before a new target is generated.
   const hitLockRef = useRef(false);
   const rafIdRef = useRef(null);
-  const lastRectRef = useRef({ top: 0, left: 0, width: 0, height: 0 });
-  const warnedRef = useRef(false);
+  const lastTransformRef = useRef(null);
 
-  // TEMPORARY diagnostic: fires once if videoRef never resolves.
-  // Remove once the root cause is confirmed fixed.
-  useEffect(() => {
-    if (!videoRef && !warnedRef.current) {
-      warnedRef.current = true;
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[WellnessChallenge] No videoRef prop was received. ' +
-        'Check that DiagnosticPage passes videoRef={videoRef} to <WellnessChallenge />.'
-      );
-    }
-  }, [videoRef]);
+  const transformsEqual = (a, b) => {
+    if (!a || !b) return a === b;
+    return (
+      a.top === b.top &&
+      a.left === b.left &&
+      a.width === b.width &&
+      a.height === b.height &&
+      a.scaleX === b.scaleX &&
+      a.scaleY === b.scaleY &&
+      a.offsetX === b.offsetX &&
+      a.offsetY === b.offsetY &&
+      a.mirrored === b.mirrored
+    );
+  };
 
-  const rectsEqual = (a, b) =>
-    a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
-
-  // Self-healing rect tracking: polls every animation frame instead of
-  // relying solely on events, so it works regardless of when the video
-  // element becomes available or resized.
+  // Self-healing display-transform tracking: polls every animation
+  // frame (instead of relying only on resize/scroll events) so it
+  // stays correct across video load timing, container resizes, and
+  // any layout/CSS changes, without needing to know when they happen.
   useEffect(() => {
     const poll = () => {
       const videoEl = videoRef?.current;
       if (videoEl) {
-        const r = videoEl.getBoundingClientRect();
-        const next = { top: r.top, left: r.left, width: r.width, height: r.height };
-        if (!rectsEqual(next, lastRectRef.current)) {
-          lastRectRef.current = next;
-          setVideoRect(next);
+        const next = computeVideoDisplayTransform(videoEl);
+        if (!transformsEqual(next, lastTransformRef.current)) {
+          lastTransformRef.current = next;
+          setDisplayTransform(next);
         }
       }
       rafIdRef.current = requestAnimationFrame(poll);
@@ -118,15 +224,20 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     setScore((prev) => prev + 1);
     setTargetHit(true);
     setTarget(generateRandomTarget());
-    const t = setTimeout(() => setTargetHit(false), 600);
-    return () => clearTimeout(t);
+
+    const clearHitTimeout = setTimeout(() => setTargetHit(false), 600);
+    return () => clearTimeout(clearHitTimeout);
   }, []);
 
+  // Run collision detection whenever a new fingertip position arrives.
   useEffect(() => {
-    if (!activeFingerTip || !videoRect.width || !videoRect.height) return;
+    if (!activeFingerTip || !displayTransform || !displayTransform.width || !displayTransform.height) {
+      return;
+    }
 
-    const fingerPx = normalizedToOverlayCoords(activeFingerTip, videoRect);
-    const targetPx = normalizedToOverlayCoords(target, videoRect);
+    const fingerPx = normalizedToOverlayCoords(activeFingerTip, displayTransform);
+    const targetPx = normalizedToOverlayCoords(target, displayTransform);
+
     const hit = isCollision(fingerPx, targetPx, TARGET_RADIUS_PX, HIT_TOLERANCE_PX);
 
     if (hit && !hitLockRef.current) {
@@ -136,19 +247,19 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
       hitLockRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFingerTip, videoRect, target]);
+  }, [activeFingerTip, displayTransform, target]);
 
-  const hasVideoBox = videoRect.width > 0 && videoRect.height > 0;
+  const hasVideoBox = !!displayTransform && displayTransform.width > 0 && displayTransform.height > 0;
 
   const fingerPx = activeFingerTip && hasVideoBox
-    ? normalizedToOverlayCoords(activeFingerTip, videoRect)
+    ? normalizedToOverlayCoords(activeFingerTip, displayTransform)
     : null;
 
-  const targetPx = hasVideoBox ? normalizedToOverlayCoords(target, videoRect) : null;
+  const targetPx = hasVideoBox
+    ? normalizedToOverlayCoords(target, displayTransform)
+    : null;
 
-  const statusLabel = !videoRef
-    ? 'Camera video reference not connected.'
-    : !hasVideoBox
+  const statusLabel = !hasVideoBox
     ? 'Waiting for camera video to render…'
     : !isTracking
     ? 'Waiting for hand tracking to start…'
@@ -164,12 +275,11 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
           className="wellness-challenge__video-overlay"
           style={{
             position: 'fixed',
-            top: `${videoRect.top}px`,
-            left: `${videoRect.left}px`,
-            width: `${videoRect.width}px`,
-            height: `${videoRect.height}px`,
+            top: `${displayTransform.top}px`,
+            left: `${displayTransform.left}px`,
+            width: `${displayTransform.width}px`,
+            height: `${displayTransform.height}px`,
             pointerEvents: 'none',
-            zIndex: 999999,
           }}
           aria-hidden="true"
         >
@@ -180,17 +290,9 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
                 position: 'absolute',
                 left: `${targetPx.x}px`,
                 top: `${targetPx.y}px`,
-                width: DEBUG_FORCE_VISIBLE_TARGET ? '60px' : `${TARGET_RADIUS_PX * 2}px`,
-                height: DEBUG_FORCE_VISIBLE_TARGET ? '60px' : `${TARGET_RADIUS_PX * 2}px`,
+                width: `${TARGET_RADIUS_PX * 2}px`,
+                height: `${TARGET_RADIUS_PX * 2}px`,
                 transform: 'translate(-50%, -50%)',
-                ...(DEBUG_FORCE_VISIBLE_TARGET
-                  ? {
-                      backgroundColor: 'red',
-                      border: '5px solid yellow',
-                      borderRadius: '50%',
-                      zIndex: 999999,
-                    }
-                  : {}),
               }}
             />
           )}
