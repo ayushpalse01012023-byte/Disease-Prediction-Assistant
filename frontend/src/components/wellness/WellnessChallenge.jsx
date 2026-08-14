@@ -245,16 +245,20 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
 >
           {targetPx && (
             <div
-              className="wellness-challenge__target"
-              style={{
-                position: 'absolute',
-                left: `${targetPx.x}px`,
-                top: `${targetPx.y}px`,
-                width: `${TARGET_RADIUS_PX * 2}px`,
-                height: `${TARGET_RADIUS_PX * 2}px`,
-                transform: 'translate(-50%, -50%)',
-              }}
-            />
+  className="wellness-challenge__target"
+  style={{
+    position: 'absolute',
+    left: `${targetPx.x}px`,
+    top: `${targetPx.y}px`,
+    width: '60px',
+    height: '60px',
+    transform: 'translate(-50%, -50%)',
+    backgroundColor: 'red',
+    border: '5px solid yellow',
+    borderRadius: '50%',
+    zIndex: 999999,
+  }}
+/>
           )}
 
           {fingerPx && (
