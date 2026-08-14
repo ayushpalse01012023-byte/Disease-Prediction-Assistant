@@ -28,31 +28,21 @@ import { createPortal } from 'react-dom';
  * runtime (via computeVideoDisplayTransform), rather than hardcoded,
  * so this stays correct even if CameraView's CSS changes later.
  *
- * FINGERTIP PERSISTENCE:
- * useHandTracking's detection loop occasionally reports zero hands for
- * a single frame — most often right after a hit, when the user's
- * finger is moving fastest toward the next target (motion blur / hand
- * briefly leaving frame). Without any tolerance for that, the cursor
- * would flicker/disappear on every such gap. To avoid this, the raw
- * `indexFingerTips[0]` value is passed through a short grace-period
- * buffer (see smoothedFingerTip below): if detection briefly returns
- * nothing, the last known position is kept on screen for
- * FINGER_PERSISTENCE_MS before the cursor is actually hidden. This is
- * purely a display/collision continuity smoothing layer — it does not
- * alter coordinate mapping, mirroring, or object-fit handling.
+ * FINGERTIP PERSISTENCE (HARD REQUIREMENT):
+ * Once MediaPipe reports an index fingertip for the first time, the
+ * cursor must render continuously and NEVER disappear again — not on
+ * a missed detection frame, not on target hit/relocation, not on any
+ * score/target/targetHit state change, not on any re-render — until
+ * this component unmounts. There is deliberately NO timeout or grace
+ * period that hides it: `lastKnownFingerTip` is only ever overwritten
+ * by a newer valid detection, never cleared back to null while the
+ * component is mounted.
  */
 
 const TARGET_MARGIN = 0.12; // normalized (0-1) inset from each edge
 const TARGET_RADIUS_PX = 28;
 const FINGER_RADIUS_PX = 10;
 const HIT_TOLERANCE_PX = 14;
-
-// How long to keep showing/using the last known fingertip position
-// after MediaPipe stops reporting a hand, before treating it as
-// genuinely gone. Short enough to still feel responsive if the hand
-// truly leaves the frame, long enough to smooth over single missed
-// detection frames.
-const FINGER_PERSISTENCE_MS = 250;
 
 /**
  * Computes how the video's natural (decoded) frame maps onto its
@@ -190,11 +180,12 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   const [target, setTarget] = useState(() => generateRandomTarget());
   const [targetHit, setTargetHit] = useState(false);
 
-  // Holds the last-known fingertip position across brief detection
-  // gaps (see FINGER_PERSISTENCE_MS above). This is the value actually
-  // used for rendering the cursor and for collision detection.
-  const [smoothedFingerTip, setSmoothedFingerTip] = useState(null);
-  const fingerGraceTimeoutRef = useRef(null);
+  // The last valid fingertip position MediaPipe reported. Once set,
+  // this is ONLY ever overwritten by a newer valid detection — never
+  // cleared back to null by a missed frame, a hit, a target change,
+  // or any other re-render. It is cleared only implicitly, by this
+  // component unmounting (React state simply ceases to exist then).
+  const [lastKnownFingerTip, setLastKnownFingerTip] = useState(null);
 
   // Prevents re-triggering a hit on every frame while the fingertip
   // lingers inside the target before a new target is generated.
@@ -248,25 +239,15 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     };
   }, [videoRef]);
 
-  // Sync the raw MediaPipe fingertip into the persisted/smoothed
-  // value. When a hand is detected, adopt it immediately and cancel
-  // any pending "hide" timer. When detection briefly returns nothing,
-  // don't clear the cursor right away — wait up to
-  // FINGER_PERSISTENCE_MS in case it was just a single missed frame.
+  // Adopt the newest valid fingertip the instant one arrives. This is
+  // the ONLY place lastKnownFingerTip is ever written — there is no
+  // branch that clears it on a missed detection, so once a hand has
+  // been seen once, the cursor value never goes back to null while
+  // mounted.
   useEffect(() => {
     const rawTip = indexFingerTips?.[0] || null;
-
     if (rawTip) {
-      if (fingerGraceTimeoutRef.current !== null) {
-        clearTimeout(fingerGraceTimeoutRef.current);
-        fingerGraceTimeoutRef.current = null;
-      }
-      setSmoothedFingerTip(rawTip);
-    } else if (fingerGraceTimeoutRef.current === null) {
-      fingerGraceTimeoutRef.current = setTimeout(() => {
-        setSmoothedFingerTip(null);
-        fingerGraceTimeoutRef.current = null;
-      }, FINGER_PERSISTENCE_MS);
+      setLastKnownFingerTip(rawTip);
     }
   }, [indexFingerTips]);
 
@@ -277,7 +258,9 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
 
     // Clear any previously-pending "target hit" timeout before
     // starting a new one, so overlapping timers can't stack up, and
-    // so this timer can be reliably cancelled on unmount.
+    // so this timer can be reliably cancelled on unmount. This only
+    // controls the "Target hit!" status text flash — it never touches
+    // lastKnownFingerTip.
     if (targetHitTimeoutRef.current !== null) {
       clearTimeout(targetHitTimeoutRef.current);
     }
@@ -288,14 +271,15 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   }, []);
 
   // Run collision detection whenever a new fingertip position arrives.
-  // Uses the smoothed/persisted fingertip so a brief detection gap
-  // doesn't spuriously reset hitLockRef mid-touch.
+  // Uses lastKnownFingerTip so a brief detection gap never spuriously
+  // resets hitLockRef mid-touch, and the cursor/collision point always
+  // reflects the most recent real position.
   useEffect(() => {
-    if (!smoothedFingerTip || !displayTransform || !displayTransform.width || !displayTransform.height) {
+    if (!lastKnownFingerTip || !displayTransform || !displayTransform.width || !displayTransform.height) {
       return;
     }
 
-    const fingerPx = normalizedToOverlayCoords(smoothedFingerTip, displayTransform);
+    const fingerPx = normalizedToOverlayCoords(lastKnownFingerTip, displayTransform);
     const targetPx = normalizedToOverlayCoords(target, displayTransform);
 
     const hit = isCollision(fingerPx, targetPx, TARGET_RADIUS_PX, HIT_TOLERANCE_PX);
@@ -307,27 +291,25 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
       hitLockRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [smoothedFingerTip, displayTransform, target]);
+  }, [lastKnownFingerTip, displayTransform, target]);
 
-  // Cancel any pending timeouts on unmount to avoid calling setState
-  // on an unmounted component.
+  // Cancel any pending "target hit" flash timeout on unmount to avoid
+  // calling setState on an unmounted component. This is the only
+  // circumstance under which the fingertip cursor effectively
+  // disappears — the whole component going away.
   useEffect(() => {
     return () => {
       if (targetHitTimeoutRef.current !== null) {
         clearTimeout(targetHitTimeoutRef.current);
         targetHitTimeoutRef.current = null;
       }
-      if (fingerGraceTimeoutRef.current !== null) {
-        clearTimeout(fingerGraceTimeoutRef.current);
-        fingerGraceTimeoutRef.current = null;
-      }
     };
   }, []);
 
   const hasVideoBox = !!displayTransform && displayTransform.width > 0 && displayTransform.height > 0;
 
-  const fingerPx = smoothedFingerTip && hasVideoBox
-    ? normalizedToOverlayCoords(smoothedFingerTip, displayTransform)
+  const fingerPx = lastKnownFingerTip && hasVideoBox
+    ? normalizedToOverlayCoords(lastKnownFingerTip, displayTransform)
     : null;
 
   const targetPx = hasVideoBox
@@ -338,7 +320,7 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     ? 'Waiting for camera video to render…'
     : !isTracking
     ? 'Waiting for hand tracking to start…'
-    : !smoothedFingerTip
+    : !lastKnownFingerTip
     ? 'Hand tracking active — show your hand to the camera.'
     : targetHit
     ? 'Target hit!'
