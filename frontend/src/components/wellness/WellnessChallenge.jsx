@@ -34,15 +34,37 @@ import { createPortal } from 'react-dom';
  * a missed detection frame, not on target hit/relocation, not on any
  * score/target/targetHit state change, not on any re-render — until
  * this component unmounts. There is deliberately NO timeout or grace
- * period that hides it: `lastKnownFingerTip` is only ever overwritten
- * by a newer valid detection, never cleared back to null while the
- * component is mounted.
+ * period that hides it.
+ *
+ * CURSOR RENDERING (PERFORMANCE):
+ * The cursor's on-screen position is intentionally NOT driven by
+ * React state/re-render. MediaPipe only reports a new position every
+ * ~33ms (~30fps, see useHandTracking.js), but the browser paints at a
+ * higher rate — updating the cursor only on React state changes makes
+ * motion look stepped, since it's tied to detection cadence rather
+ * than paint cadence. Instead:
+ *   - The latest valid fingertip is also written into fingerTipRawRef
+ *     (a plain ref, not state) every time a new detection arrives.
+ *   - A dedicated requestAnimationFrame loop reads that ref every
+ *     paint frame, applies light exponential smoothing to remove
+ *     visible steps between detections, and writes the result
+ *     directly to the cursor DOM node's style.transform via
+ *     fingerNodeRef — bypassing React's render cycle entirely for
+ *     movement.
+ * Collision detection is unaffected by this and continues to run off
+ * React state (lastKnownFingerTip), exactly as before.
  */
 
 const TARGET_MARGIN = 0.12; // normalized (0-1) inset from each edge
 const TARGET_RADIUS_PX = 28;
 const FINGER_RADIUS_PX = 10;
 const HIT_TOLERANCE_PX = 14;
+
+// Exponential smoothing factor for the imperative cursor render loop.
+// High value = converges to the real position within ~2-3 frames
+// (well under 50ms) — enough to remove visible stepping between
+// detections without introducing noticeable artificial lag.
+const CURSOR_SMOOTHING_FACTOR = 0.55;
 
 /**
  * Computes how the video's natural (decoded) frame maps onto its
@@ -180,12 +202,29 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   const [target, setTarget] = useState(() => generateRandomTarget());
   const [targetHit, setTargetHit] = useState(false);
 
-  // The last valid fingertip position MediaPipe reported. Once set,
-  // this is ONLY ever overwritten by a newer valid detection — never
-  // cleared back to null by a missed frame, a hit, a target change,
-  // or any other re-render. It is cleared only implicitly, by this
-  // component unmounting (React state simply ceases to exist then).
+  // The last valid fingertip position MediaPipe reported, used for
+  // COLLISION DETECTION only. Once set, this is ONLY ever overwritten
+  // by a newer valid detection — never cleared by a missed frame, a
+  // hit, a target change, or any other re-render.
   const [lastKnownFingerTip, setLastKnownFingerTip] = useState(null);
+
+  // Becomes true the first time a hand is ever detected, and never
+  // reverts to false — controls whether the cursor DOM node is
+  // mounted at all. Once mounted, it stays mounted until unmount.
+  const [hasDetectedFinger, setHasDetectedFinger] = useState(false);
+
+  // Mirrors lastKnownFingerTip but as a plain ref, read every animation
+  // frame by the imperative cursor-render loop below — this is what
+  // makes cursor movement independent of React's render cycle.
+  const fingerTipRawRef = useRef(null);
+
+  // Direct DOM reference to the cursor element; its position is set
+  // imperatively via style.transform inside the rAF loop, not via
+  // React-computed inline style, so it can update every paint frame
+  // regardless of how often React re-renders this component.
+  const fingerNodeRef = useRef(null);
+  const smoothedFingerPxRef = useRef(null);
+  const cursorRafRef = useRef(null);
 
   // Prevents re-triggering a hit on every frame while the fingertip
   // lingers inside the target before a new target is generated.
@@ -239,17 +278,63 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     };
   }, [videoRef]);
 
-  // Adopt the newest valid fingertip the instant one arrives. This is
-  // the ONLY place lastKnownFingerTip is ever written — there is no
-  // branch that clears it on a missed detection, so once a hand has
-  // been seen once, the cursor value never goes back to null while
-  // mounted.
+  // Adopt the newest valid fingertip the instant one arrives — for
+  // both collision detection (state) and cursor rendering (ref).
   useEffect(() => {
     const rawTip = indexFingerTips?.[0] || null;
     if (rawTip) {
       setLastKnownFingerTip(rawTip);
+      fingerTipRawRef.current = rawTip;
+      if (!hasDetectedFinger) {
+        setHasDetectedFinger(true);
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indexFingerTips]);
+
+  // Imperative cursor render loop: runs every animation frame,
+  // independent of MediaPipe's detection rate, reading the latest
+  // fingertip/transform from refs and writing directly to the DOM.
+  // This is what makes the cursor move smoothly at display refresh
+  // rate instead of stepping at ~30fps.
+  useEffect(() => {
+    const renderCursor = () => {
+      const tip = fingerTipRawRef.current;
+      const transform = lastTransformRef.current;
+      const node = fingerNodeRef.current;
+
+      if (tip && transform && transform.width && transform.height && node) {
+        const rawPx = normalizedToOverlayCoords(tip, transform);
+
+        if (!smoothedFingerPxRef.current) {
+          smoothedFingerPxRef.current = { x: rawPx.x, y: rawPx.y };
+        } else {
+          smoothedFingerPxRef.current = {
+            x:
+              smoothedFingerPxRef.current.x +
+              (rawPx.x - smoothedFingerPxRef.current.x) * CURSOR_SMOOTHING_FACTOR,
+            y:
+              smoothedFingerPxRef.current.y +
+              (rawPx.y - smoothedFingerPxRef.current.y) * CURSOR_SMOOTHING_FACTOR,
+          };
+        }
+
+        const { x, y } = smoothedFingerPxRef.current;
+        node.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+      }
+
+      cursorRafRef.current = requestAnimationFrame(renderCursor);
+    };
+
+    cursorRafRef.current = requestAnimationFrame(renderCursor);
+
+    return () => {
+      if (cursorRafRef.current !== null) {
+        cancelAnimationFrame(cursorRafRef.current);
+        cursorRafRef.current = null;
+      }
+    };
+  }, []);
 
   const handleTargetHit = useCallback(() => {
     setScore((prev) => prev + 1);
@@ -260,7 +345,7 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     // starting a new one, so overlapping timers can't stack up, and
     // so this timer can be reliably cancelled on unmount. This only
     // controls the "Target hit!" status text flash — it never touches
-    // lastKnownFingerTip.
+    // the fingertip cursor.
     if (targetHitTimeoutRef.current !== null) {
       clearTimeout(targetHitTimeoutRef.current);
     }
@@ -271,9 +356,8 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   }, []);
 
   // Run collision detection whenever a new fingertip position arrives.
-  // Uses lastKnownFingerTip so a brief detection gap never spuriously
-  // resets hitLockRef mid-touch, and the cursor/collision point always
-  // reflects the most recent real position.
+  // Uses lastKnownFingerTip (state) — unchanged from before, unrelated
+  // to the cursor's visual smoothing/render path above.
   useEffect(() => {
     if (!lastKnownFingerTip || !displayTransform || !displayTransform.width || !displayTransform.height) {
       return;
@@ -294,9 +378,7 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   }, [lastKnownFingerTip, displayTransform, target]);
 
   // Cancel any pending "target hit" flash timeout on unmount to avoid
-  // calling setState on an unmounted component. This is the only
-  // circumstance under which the fingertip cursor effectively
-  // disappears — the whole component going away.
+  // calling setState on an unmounted component.
   useEffect(() => {
     return () => {
       if (targetHitTimeoutRef.current !== null) {
@@ -308,7 +390,10 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
 
   const hasVideoBox = !!displayTransform && displayTransform.width > 0 && displayTransform.height > 0;
 
-  const fingerPx = lastKnownFingerTip && hasVideoBox
+  // Used only as the cursor's initial paint position, before the rAF
+  // loop above takes over on the next frame — avoids a first-frame
+  // flash at (0,0). All subsequent movement bypasses this value.
+  const initialFingerPx = lastKnownFingerTip && hasVideoBox
     ? normalizedToOverlayCoords(lastKnownFingerTip, displayTransform)
     : null;
 
@@ -354,16 +439,20 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
             />
           )}
 
-          {fingerPx && (
+          {hasDetectedFinger && (
             <div
+              ref={fingerNodeRef}
               className="wellness-challenge__finger"
               style={{
                 position: 'absolute',
-                left: `${fingerPx.x}px`,
-                top: `${fingerPx.y}px`,
+                left: 0,
+                top: 0,
                 width: `${FINGER_RADIUS_PX * 2}px`,
                 height: `${FINGER_RADIUS_PX * 2}px`,
-                transform: 'translate(-50%, -50%)',
+                willChange: 'transform',
+                transform: initialFingerPx
+                  ? `translate(${initialFingerPx.x}px, ${initialFingerPx.y}px) translate(-50%, -50%)`
+                  : undefined,
               }}
             />
           )}
