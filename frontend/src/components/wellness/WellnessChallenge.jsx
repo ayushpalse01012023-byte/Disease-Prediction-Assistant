@@ -36,35 +36,32 @@ import { createPortal } from 'react-dom';
  * this component unmounts. There is deliberately NO timeout or grace
  * period that hides it.
  *
- * CURSOR RENDERING (PERFORMANCE):
+ * CURSOR RENDERING (PERFORMANCE / LATENCY):
  * The cursor's on-screen position is intentionally NOT driven by
- * React state/re-render. MediaPipe only reports a new position every
- * ~33ms (~30fps, see useHandTracking.js), but the browser paints at a
- * higher rate — updating the cursor only on React state changes makes
- * motion look stepped, since it's tied to detection cadence rather
- * than paint cadence. Instead:
- *   - The latest valid fingertip is also written into fingerTipRawRef
- *     (a plain ref, not state) every time a new detection arrives.
- *   - A dedicated requestAnimationFrame loop reads that ref every
- *     paint frame, applies light exponential smoothing to remove
- *     visible steps between detections, and writes the result
- *     directly to the cursor DOM node's style.transform via
- *     fingerNodeRef — bypassing React's render cycle entirely for
- *     movement.
- * Collision detection is unaffected by this and continues to run off
- * React state (lastKnownFingerTip), exactly as before.
+ * React state/re-render — a dedicated requestAnimationFrame loop reads
+ * the latest fingertip position from fingerTipRawRef (a plain ref) and
+ * the latest display transform every paint frame, and writes the
+ * result directly to the cursor DOM node's style.transform via
+ * fingerNodeRef, bypassing React's render cycle entirely.
+ *
+ * NO SMOOTHING/INTERPOLATION is applied to this value. An earlier
+ * version applied exponential smoothing to reduce jitter between
+ * detections, but smoothing of this kind mathematically always trails
+ * a moving target by an amount proportional to velocity — it produced
+ * a persistent visible lag during finger movement rather than just
+ * removing jitter on a stationary hand. Per product requirement, raw
+ * MediaPipe jitter is preferred over any positional lag, so the loop
+ * below writes the converted raw position straight to the DOM with no
+ * interpolation: latest MediaPipe fingertip → ref → rAF → DOM.
+ *
+ * Collision detection is unaffected by any of this and continues to
+ * run off React state (lastKnownFingerTip), exactly as before.
  */
 
 const TARGET_MARGIN = 0.12; // normalized (0-1) inset from each edge
 const TARGET_RADIUS_PX = 28;
 const FINGER_RADIUS_PX = 10;
 const HIT_TOLERANCE_PX = 14;
-
-// Exponential smoothing factor for the imperative cursor render loop.
-// High value = converges to the real position within ~2-3 frames
-// (well under 50ms) — enough to remove visible stepping between
-// detections without introducing noticeable artificial lag.
-const CURSOR_SMOOTHING_FACTOR = 0.55;
 
 /**
  * Computes how the video's natural (decoded) frame maps onto its
@@ -223,7 +220,6 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   // React-computed inline style, so it can update every paint frame
   // regardless of how often React re-renders this component.
   const fingerNodeRef = useRef(null);
-  const smoothedFingerPxRef = useRef(null);
   const cursorRafRef = useRef(null);
 
   // Prevents re-triggering a hit on every frame while the fingertip
@@ -295,8 +291,10 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   // Imperative cursor render loop: runs every animation frame,
   // independent of MediaPipe's detection rate, reading the latest
   // fingertip/transform from refs and writing directly to the DOM.
-  // This is what makes the cursor move smoothly at display refresh
-  // rate instead of stepping at ~30fps.
+  // No smoothing/interpolation is applied — the raw converted position
+  // is written every frame, so the cursor tracks the real fingertip
+  // with minimum possible latency (at the cost of raw MediaPipe
+  // jitter being visible, which is the accepted tradeoff here).
   useEffect(() => {
     const renderCursor = () => {
       const tip = fingerTipRawRef.current;
@@ -304,23 +302,8 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
       const node = fingerNodeRef.current;
 
       if (tip && transform && transform.width && transform.height && node) {
-        const rawPx = normalizedToOverlayCoords(tip, transform);
-
-        if (!smoothedFingerPxRef.current) {
-          smoothedFingerPxRef.current = { x: rawPx.x, y: rawPx.y };
-        } else {
-          smoothedFingerPxRef.current = {
-            x:
-              smoothedFingerPxRef.current.x +
-              (rawPx.x - smoothedFingerPxRef.current.x) * CURSOR_SMOOTHING_FACTOR,
-            y:
-              smoothedFingerPxRef.current.y +
-              (rawPx.y - smoothedFingerPxRef.current.y) * CURSOR_SMOOTHING_FACTOR,
-          };
-        }
-
-        const { x, y } = smoothedFingerPxRef.current;
-        node.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+        const px = normalizedToOverlayCoords(tip, transform);
+        node.style.transform = `translate(${px.x}px, ${px.y}px) translate(-50%, -50%)`;
       }
 
       cursorRafRef.current = requestAnimationFrame(renderCursor);
@@ -356,8 +339,8 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   }, []);
 
   // Run collision detection whenever a new fingertip position arrives.
-  // Uses lastKnownFingerTip (state) — unchanged from before, unrelated
-  // to the cursor's visual smoothing/render path above.
+  // Uses lastKnownFingerTip (state) — unrelated to the cursor's raw
+  // render path above.
   useEffect(() => {
     if (!lastKnownFingerTip || !displayTransform || !displayTransform.width || !displayTransform.height) {
       return;
