@@ -1,80 +1,20 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
-/**
- * WellnessChallenge.jsx — Phase 1.
- *
- * Independent of the camera/vision lifecycle. Receives the SAME
- * videoRef owned by DiagnosticPage's useCamera() (rendered by
- * CameraView), plus indexFingerTips/isTracking from useHandTracking.
- * Creates no camera stream, no <video>, no MediaPipe instance.
- *
- * COORDINATE MAPPING:
- * MediaPipe's normalized (x, y) coordinates always describe a position
- * within the video's raw, decoded frame (videoWidth x videoHeight) —
- * CSS never affects what MediaPipe reads. To place the overlay
- * correctly on screen, we must map that raw-frame position into the
- * video element's actual rendered box, accounting for:
- *
- *   1. object-fit (cover/contain/none/fill) — if the rendered box's
- *      aspect ratio differs from the video's natural aspect ratio,
- *      the browser scales/crops/letterboxes the image, so the visible
- *      content rect is NOT simply the element's bounding box.
- *   2. CSS mirroring (e.g. transform: scaleX(-1)) — if the video is
- *      visually mirrored for a natural "selfie" look, the overlay must
- *      mirror too, or it will track the opposite side of the frame.
- *
- * Both are detected from the video element's actual computed style at
- * runtime (via computeVideoDisplayTransform), rather than hardcoded,
- * so this stays correct even if CameraView's CSS changes later.
- *
- * FINGERTIP PERSISTENCE (HARD REQUIREMENT):
- * Once MediaPipe reports an index fingertip for the first time, the
- * cursor must render continuously and NEVER disappear again — not on
- * a missed detection frame, not on target hit/relocation, not on any
- * score/target/targetHit state change, not on any re-render — until
- * this component unmounts. There is deliberately NO timeout or grace
- * period that hides it.
- *
- * CURSOR RENDERING (PERFORMANCE):
- * The cursor's on-screen position is intentionally NOT driven by
- * React state/re-render. MediaPipe only reports a new position every
- * ~33ms (~30fps, see useHandTracking.js), but the browser paints at a
- * higher rate — updating the cursor only on React state changes makes
- * motion look stepped, since it's tied to detection cadence rather
- * than paint cadence. Instead:
- *   - The latest valid fingertip is also written into fingerTipRawRef
- *     (a plain ref, not state) every time a new detection arrives.
- *   - A dedicated requestAnimationFrame loop reads that ref every
- *     paint frame, applies light exponential smoothing to remove
- *     visible steps between detections, and writes the result
- *     directly to the cursor DOM node's style.transform via
- *     fingerNodeRef — bypassing React's render cycle entirely for
- *     movement.
- * Collision detection is unaffected by this and continues to run off
- * React state (lastKnownFingerTip), exactly as before.
- */
-
-const TARGET_MARGIN = 0.12; // normalized (0-1) inset from each edge
+const TARGET_MARGIN = 0.12;
 const TARGET_RADIUS_PX = 28;
 const FINGER_RADIUS_PX = 10;
 const HIT_TOLERANCE_PX = 14;
 
-// Exponential smoothing factor for the imperative cursor render loop.
-// High value = converges to the real position within ~2-3 frames
-// (well under 50ms) — enough to remove visible stepping between
-// detections without introducing noticeable artificial lag.
+// Phase 1 — fingertip cursor exponential smoothing factor. Converges
+// to the real position within a couple of frames; removes visible
+// stepping between MediaPipe detections without adding perceptible lag.
 const CURSOR_SMOOTHING_FACTOR = 0.55;
 
-/**
- * Computes how the video's natural (decoded) frame maps onto its
- * actual rendered CSS box: scale, offset (for letterboxing/cropping),
- * and whether it's horizontally mirrored — all read from the element's
- * real computed style, not assumed.
- *
- * @param {HTMLVideoElement} videoEl
- * @returns {{top:number,left:number,width:number,height:number,naturalWidth:number,naturalHeight:number,scaleX:number,scaleY:number,offsetX:number,offsetY:number,mirrored:boolean}}
- */
+// Phase 2 — Step 1: moving target. Normalized units per second (slow,
+// constant speed for initial testing).
+const TARGET_SPEED = 0.05;
+
 function computeVideoDisplayTransform(videoEl) {
   const boxRect = videoEl.getBoundingClientRect();
   const naturalWidth = videoEl.videoWidth;
@@ -98,11 +38,6 @@ function computeVideoDisplayTransform(videoEl) {
     return base;
   }
 
-  // Detect horizontal mirroring from the video's actual computed
-  // transform, rather than assuming it. MediaPipe's coordinates are
-  // always relative to the unmirrored raw frame, so if (and only if)
-  // the video is visually mirrored via CSS, the overlay needs to
-  // mirror too to match what's on screen.
   let mirrored = false;
   try {
     const computedTransform = window.getComputedStyle(videoEl).transform;
@@ -144,9 +79,6 @@ function computeVideoDisplayTransform(videoEl) {
     offsetX = (boxRect.width - naturalWidth) / 2;
     offsetY = (boxRect.height - naturalHeight) / 2;
   } else {
-    // 'fill' — the native <video> stretch behavior when no object-fit
-    // is set (confirmed: components.css defines no object-fit rule
-    // for .camera-viewport video), non-uniform scale, no offset.
     scaleX = boxRect.width / naturalWidth;
     scaleY = boxRect.height / naturalHeight;
   }
@@ -154,10 +86,6 @@ function computeVideoDisplayTransform(videoEl) {
   return { ...base, scaleX, scaleY, offsetX, offsetY, mirrored };
 }
 
-/**
- * Converts a normalized MediaPipe coordinate into overlay pixel space
- * using the video's real display transform (mirror + object-fit aware).
- */
 function normalizedToOverlayCoords(point, transform) {
   const clampedX = Math.min(Math.max(point.x, 0), 1);
   const clampedY = Math.min(Math.max(point.y, 0), 1);
@@ -173,10 +101,6 @@ function normalizedToOverlayCoords(point, transform) {
   };
 }
 
-/**
- * Generates a new random target position in normalized (0-1) space,
- * inset from the edges by TARGET_MARGIN so targets stay reachable.
- */
 function generateRandomTarget() {
   const range = 1 - TARGET_MARGIN * 2;
   return {
@@ -185,10 +109,16 @@ function generateRandomTarget() {
   };
 }
 
-/**
- * Euclidean distance-based collision check between the fingertip and
- * the target, both already converted to overlay pixel space.
- */
+// Phase 2 — random unit-direction velocity at TARGET_SPEED (normalized
+// units/sec), used for initial spawn and after every successful hit.
+function generateRandomVelocity(speed) {
+  const angle = Math.random() * Math.PI * 2;
+  return {
+    x: Math.cos(angle) * speed,
+    y: Math.sin(angle) * speed,
+  };
+}
+
 function isCollision(fingerPx, targetPx, radiusPx, tolerancePx) {
   const dx = fingerPx.x - targetPx.x;
   const dy = fingerPx.y - targetPx.y;
@@ -199,41 +129,28 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   const [displayTransform, setDisplayTransform] = useState(null);
 
   const [score, setScore] = useState(0);
-  const [target, setTarget] = useState(() => generateRandomTarget());
   const [targetHit, setTargetHit] = useState(false);
 
-  // The last valid fingertip position MediaPipe reported, used for
-  // COLLISION DETECTION only. Once set, this is ONLY ever overwritten
-  // by a newer valid detection — never cleared by a missed frame, a
-  // hit, a target change, or any other re-render.
   const [lastKnownFingerTip, setLastKnownFingerTip] = useState(null);
-
-  // Becomes true the first time a hand is ever detected, and never
-  // reverts to false — controls whether the cursor DOM node is
-  // mounted at all. Once mounted, it stays mounted until unmount.
   const [hasDetectedFinger, setHasDetectedFinger] = useState(false);
 
-  // Mirrors lastKnownFingerTip but as a plain ref, read every animation
-  // frame by the imperative cursor-render loop below — this is what
-  // makes cursor movement independent of React's render cycle.
+  // Phase 1 — fingertip refs (unchanged).
   const fingerTipRawRef = useRef(null);
-
-  // Direct DOM reference to the cursor element; its position is set
-  // imperatively via style.transform inside the rAF loop, not via
-  // React-computed inline style, so it can update every paint frame
-  // regardless of how often React re-renders this component.
   const fingerNodeRef = useRef(null);
   const smoothedFingerPxRef = useRef(null);
   const cursorRafRef = useRef(null);
 
-  // Prevents re-triggering a hit on every frame while the fingertip
-  // lingers inside the target before a new target is generated.
+  // Phase 2 — moving target state lives entirely in refs so the
+  // animation loop never triggers a React re-render.
+  const targetPosRef = useRef(generateRandomTarget());
+  const targetVelRef = useRef(generateRandomVelocity(TARGET_SPEED));
+  const targetNodeRef = useRef(null);
+  const targetAnimRafRef = useRef(null);
+  const targetLastFrameTimeRef = useRef(null);
+
   const hitLockRef = useRef(false);
   const rafIdRef = useRef(null);
   const lastTransformRef = useRef(null);
-  // Tracks the pending "target hit" flash timeout so it can be
-  // superseded (instead of stacking) on rapid consecutive hits, and
-  // cancelled on unmount to avoid a setState-after-unmount warning.
   const targetHitTimeoutRef = useRef(null);
 
   const transformsEqual = (a, b) => {
@@ -251,10 +168,6 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     );
   };
 
-  // Self-healing display-transform tracking: polls every animation
-  // frame (instead of relying only on resize/scroll events) so it
-  // stays correct across video load timing, container resizes, and
-  // any layout/CSS changes, without needing to know when they happen.
   useEffect(() => {
     const poll = () => {
       const videoEl = videoRef?.current;
@@ -278,8 +191,6 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     };
   }, [videoRef]);
 
-  // Adopt the newest valid fingertip the instant one arrives — for
-  // both collision detection (state) and cursor rendering (ref).
   useEffect(() => {
     const rawTip = indexFingerTips?.[0] || null;
     if (rawTip) {
@@ -292,11 +203,8 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [indexFingerTips]);
 
-  // Imperative cursor render loop: runs every animation frame,
-  // independent of MediaPipe's detection rate, reading the latest
-  // fingertip/transform from refs and writing directly to the DOM.
-  // This is what makes the cursor move smoothly at display refresh
-  // rate instead of stepping at ~30fps.
+  // Phase 1 — fingertip cursor render loop: exponential smoothing +
+  // direct DOM style.transform writes, restored exactly.
   useEffect(() => {
     const renderCursor = () => {
       const tip = fingerTipRawRef.current;
@@ -339,13 +247,12 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
   const handleTargetHit = useCallback(() => {
     setScore((prev) => prev + 1);
     setTargetHit(true);
-    setTarget(generateRandomTarget());
 
-    // Clear any previously-pending "target hit" timeout before
-    // starting a new one, so overlapping timers can't stack up, and
-    // so this timer can be reliably cancelled on unmount. This only
-    // controls the "Target hit!" status text flash — it never touches
-    // the fingertip cursor.
+    // Relocate the target and give it a fresh direction, then let the
+    // movement loop continue immediately from the new position.
+    targetPosRef.current = generateRandomTarget();
+    targetVelRef.current = generateRandomVelocity(TARGET_SPEED);
+
     if (targetHitTimeoutRef.current !== null) {
       clearTimeout(targetHitTimeoutRef.current);
     }
@@ -355,16 +262,80 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
     }, 600);
   }, []);
 
-  // Run collision detection whenever a new fingertip position arrives.
-  // Uses lastKnownFingerTip (state) — unchanged from before, unrelated
-  // to the cursor's visual smoothing/render path above.
+  // Phase 2 — continuous target movement + bounce, driven entirely by
+  // requestAnimationFrame and refs. Position is written via left/top
+  // (not transform) because the existing CSS pulse animation
+  // (.wellness-challenge__target) already animates `transform` for
+  // centering/scaling — writing position through transform as well
+  // would fight that animation and lose the centering offset.
+  useEffect(() => {
+    const animateTarget = (timestamp) => {
+      if (targetLastFrameTimeRef.current === null) {
+        targetLastFrameTimeRef.current = timestamp;
+      }
+      const dt = (timestamp - targetLastFrameTimeRef.current) / 1000;
+      targetLastFrameTimeRef.current = timestamp;
+
+      const pos = targetPosRef.current;
+      const vel = targetVelRef.current;
+
+      let nextX = pos.x + vel.x * dt;
+      let nextY = pos.y + vel.y * dt;
+
+      const minX = TARGET_MARGIN;
+      const maxX = 1 - TARGET_MARGIN;
+      const minY = TARGET_MARGIN;
+      const maxY = 1 - TARGET_MARGIN;
+
+      if (nextX <= minX) {
+        nextX = minX;
+        vel.x = Math.abs(vel.x);
+      } else if (nextX >= maxX) {
+        nextX = maxX;
+        vel.x = -Math.abs(vel.x);
+      }
+
+      if (nextY <= minY) {
+        nextY = minY;
+        vel.y = Math.abs(vel.y);
+      } else if (nextY >= maxY) {
+        nextY = maxY;
+        vel.y = -Math.abs(vel.y);
+      }
+
+      targetPosRef.current = { x: nextX, y: nextY };
+
+      const transform = lastTransformRef.current;
+      const node = targetNodeRef.current;
+      if (transform && transform.width && transform.height && node) {
+        const px = normalizedToOverlayCoords(targetPosRef.current, transform);
+        node.style.left = `${px.x}px`;
+        node.style.top = `${px.y}px`;
+      }
+
+      targetAnimRafRef.current = requestAnimationFrame(animateTarget);
+    };
+
+    targetAnimRafRef.current = requestAnimationFrame(animateTarget);
+
+    return () => {
+      if (targetAnimRafRef.current !== null) {
+        cancelAnimationFrame(targetAnimRafRef.current);
+        targetAnimRafRef.current = null;
+      }
+    };
+  }, []);
+
+  // Collision detection: unchanged logic (isCollision + hitLockRef).
+  // Target position is read from targetPosRef.current since the
+  // target now moves continuously; fingertip side is unchanged.
   useEffect(() => {
     if (!lastKnownFingerTip || !displayTransform || !displayTransform.width || !displayTransform.height) {
       return;
     }
 
     const fingerPx = normalizedToOverlayCoords(lastKnownFingerTip, displayTransform);
-    const targetPx = normalizedToOverlayCoords(target, displayTransform);
+    const targetPx = normalizedToOverlayCoords(targetPosRef.current, displayTransform);
 
     const hit = isCollision(fingerPx, targetPx, TARGET_RADIUS_PX, HIT_TOLERANCE_PX);
 
@@ -375,10 +346,8 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
       hitLockRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastKnownFingerTip, displayTransform, target]);
+  }, [lastKnownFingerTip, displayTransform]);
 
-  // Cancel any pending "target hit" flash timeout on unmount to avoid
-  // calling setState on an unmounted component.
   useEffect(() => {
     return () => {
       if (targetHitTimeoutRef.current !== null) {
@@ -390,15 +359,12 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
 
   const hasVideoBox = !!displayTransform && displayTransform.width > 0 && displayTransform.height > 0;
 
-  // Used only as the cursor's initial paint position, before the rAF
-  // loop above takes over on the next frame — avoids a first-frame
-  // flash at (0,0). All subsequent movement bypasses this value.
   const initialFingerPx = lastKnownFingerTip && hasVideoBox
     ? normalizedToOverlayCoords(lastKnownFingerTip, displayTransform)
     : null;
 
-  const targetPx = hasVideoBox
-    ? normalizedToOverlayCoords(target, displayTransform)
+  const initialTargetPx = hasVideoBox
+    ? normalizedToOverlayCoords(targetPosRef.current, displayTransform)
     : null;
 
   const statusLabel = !hasVideoBox
@@ -425,19 +391,18 @@ function WellnessChallenge({ videoRef, indexFingerTips = [], isTracking = false 
           }}
           aria-hidden="true"
         >
-          {targetPx && (
-            <div
-              className="wellness-challenge__target"
-              style={{
-                position: 'absolute',
-                left: `${targetPx.x}px`,
-                top: `${targetPx.y}px`,
-                width: `${TARGET_RADIUS_PX * 2}px`,
-                height: `${TARGET_RADIUS_PX * 2}px`,
-                transform: 'translate(-50%, -50%)',
-              }}
-            />
-          )}
+          <div
+            ref={targetNodeRef}
+            className="wellness-challenge__target"
+            style={{
+              position: 'absolute',
+              left: initialTargetPx ? `${initialTargetPx.x}px` : '0px',
+              top: initialTargetPx ? `${initialTargetPx.y}px` : '0px',
+              width: `${TARGET_RADIUS_PX * 2}px`,
+              height: `${TARGET_RADIUS_PX * 2}px`,
+              transform: 'translate(-50%, -50%)',
+            }}
+          />
 
           {hasDetectedFinger && (
             <div
