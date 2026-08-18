@@ -51,7 +51,7 @@ function getDifficultyLabel(score) {
 }
 
 // ============================================================
-// PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (NEW)
+// PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED)
 // ============================================================
 // How aggressively the current velocity steers toward a newly chosen
 // direction each frame. Higher = snappier turn-in. Tuned so direction
@@ -60,7 +60,7 @@ function getDifficultyLabel(score) {
 const STEERING_RATE = 6;
 
 /**
- * PHASE 2 STEP 3 (NEW)
+ * PHASE 2 STEP 3 (PRESERVED)
  * Returns how often (in seconds) the target is allowed to pick a new
  * movement direction, based on score/difficulty. Thresholds
  * intentionally match getDifficultyLabel's (5 / 10 / 20) so the
@@ -265,12 +265,22 @@ function WellnessChallenge({
   const targetLastFrameTimeRef = useRef(null);
 
   // ============================================================
-  // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (NEW)
+  // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED + FIXED)
   // ============================================================
   // Timestamp (ms, matches requestAnimationFrame's timestamp) at
   // which the target is next allowed to pick a new direction. null
   // means "not yet initialized" — set on the first animation frame.
   const targetDirectionChangeRef = useRef(null);
+
+  // BUGFIX (NEW): remembers the direction-change interval that was
+  // last scheduled. Without this, once the interval was set to
+  // Infinity at Easy difficulty, the "if current === null" guard
+  // never fired again for later difficulty transitions (Medium/Hard/
+  // Expert), because Infinity is not null — so direction changes
+  // never started after leaving Easy without an intervening hit.
+  // Tracking the interval itself lets us detect a difficulty change
+  // and reschedule immediately, independent of hits.
+  const targetDirectionIntervalRef = useRef(null);
 
   // The velocity we're currently steering the target's actual
   // velocity toward. null means no direction change is in progress —
@@ -482,13 +492,14 @@ function WellnessChallenge({
     targetVelRef.current =
       generateRandomVelocity(nextSpeed);
 
-    // PHASE 2 STEP 3 (NEW) — reset the direction-change schedule and
-    // clear any in-progress steering so the new target starts on a
-    // clean straight-line velocity, exactly like a freshly spawned
-    // target. Setting the timer ref to null makes the animation loop
-    // reinitialize it on its next frame using the current timestamp
-    // and the (now-updated) difficulty's interval.
+    // PHASE 2 STEP 3 (PRESERVED + FIXED) — reset the direction-change
+    // schedule and clear any in-progress steering so the new target
+    // starts on a clean straight-line velocity, exactly like a
+    // freshly spawned target. Also reset the interval-tracking ref
+    // (bugfix) so the animation loop's change-detection reinitializes
+    // cleanly rather than comparing against a stale interval.
     targetDirectionChangeRef.current = null;
+    targetDirectionIntervalRef.current = null;
     targetDesiredVelRef.current = null;
 
     if (
@@ -532,7 +543,7 @@ function WellnessChallenge({
       const vel = targetVelRef.current;
 
       // ========================================================
-      // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (NEW)
+      // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED + FIXED)
       // ========================================================
       // Decide whether it's time to pick a new direction, then
       // smoothly steer the current velocity toward it. This runs
@@ -544,7 +555,18 @@ function WellnessChallenge({
         scoreRef.current
       );
 
-      if (targetDirectionChangeRef.current === null) {
+      // BUGFIX: reschedule whenever the applicable interval itself
+      // has changed (i.e. the player crossed a difficulty threshold),
+      // not only when targetDirectionChangeRef.current is null. This
+      // is what makes Easy → Medium → Hard → Expert transitions start
+      // their new schedule immediately, even without an intervening
+      // hit — since Infinity !== 2.5 !== 1.2 !== 0.6, any threshold
+      // crossing is detected on the very next animation frame.
+      if (
+        targetDirectionIntervalRef.current !== directionInterval
+      ) {
+        targetDirectionIntervalRef.current = directionInterval;
+
         targetDirectionChangeRef.current =
           directionInterval === Infinity
             ? Infinity
@@ -754,10 +776,12 @@ function WellnessChallenge({
       targetLastFrameTimeRef.current =
         null;
 
-      // PHASE 2 STEP 3 (NEW) — reset scheduling refs on cleanup so a
-      // remount (e.g. React Strict Mode) starts with a clean slate
-      // rather than a stale scheduled timestamp from a previous run.
+      // PHASE 2 STEP 3 (PRESERVED + FIXED) — reset scheduling refs on
+      // cleanup so a remount (e.g. React Strict Mode) starts with a
+      // clean slate rather than a stale scheduled timestamp/interval
+      // from a previous run.
       targetDirectionChangeRef.current = null;
+      targetDirectionIntervalRef.current = null;
       targetDesiredVelRef.current = null;
     };
   }, [handleTargetHit]);
