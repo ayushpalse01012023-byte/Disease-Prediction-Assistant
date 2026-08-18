@@ -10,9 +10,45 @@ const HIT_TOLERANCE_PX = 14;
 // KEEP FROZEN.
 const CURSOR_SMOOTHING_FACTOR = 0.55;
 
-// Phase 2 — moving target speed.
+// ============================================================
+// PHASE 2 STEP 2 — PROGRESSIVE DIFFICULTY (NEW)
+// ============================================================
+// Base/starting speed (same value as Step 1's old constant) and a
+// sensible maximum so the challenge never becomes unplayable.
 // Normalized units per second.
-const TARGET_SPEED = 0.05;
+const BASE_TARGET_SPEED = 0.05;
+const MAX_TARGET_SPEED = 0.22;
+
+// Score at which speed reaches MAX_TARGET_SPEED. Progression beyond
+// this score is clamped, not extrapolated further.
+const SPEED_RAMP_SCORE = 25;
+
+/**
+ * PHASE 2 STEP 2 (NEW)
+ * Computes the target's movement speed for a given score. Increases
+ * smoothly (not in abrupt steps) from BASE_TARGET_SPEED up to
+ * MAX_TARGET_SPEED as score approaches SPEED_RAMP_SCORE, then stays
+ * capped at MAX_TARGET_SPEED beyond that. Never returns undefined —
+ * negative/undefined/NaN scores fall back to 0.
+ */
+function getTargetSpeed(score) {
+  const safeScore = Number.isFinite(score) && score > 0 ? score : 0;
+  const progress = Math.min(safeScore / SPEED_RAMP_SCORE, 1);
+  return BASE_TARGET_SPEED + (MAX_TARGET_SPEED - BASE_TARGET_SPEED) * progress;
+}
+
+/**
+ * PHASE 2 STEP 2 (NEW)
+ * Derives a human-readable difficulty label from score, kept in sync
+ * with getTargetSpeed's thresholds purely for display purposes.
+ */
+function getDifficultyLabel(score) {
+  const safeScore = Number.isFinite(score) && score > 0 ? score : 0;
+  if (safeScore >= 20) return 'Expert';
+  if (safeScore >= 10) return 'Hard';
+  if (safeScore >= 5) return 'Medium';
+  return 'Easy';
+}
 
 function computeVideoDisplayTransform(videoEl) {
   const boxRect = videoEl.getBoundingClientRect();
@@ -166,6 +202,10 @@ function WellnessChallenge({
   const [score, setScore] = useState(0);
   const [targetHit, setTargetHit] = useState(false);
 
+  // PHASE 2 STEP 2 (NEW) — difficulty label for display, kept in sync
+  // with score via the effect below.
+  const [difficultyLabel, setDifficultyLabel] = useState(() => getDifficultyLabel(0));
+
   const [lastKnownFingerTip, setLastKnownFingerTip] = useState(null);
   const [hasDetectedFinger, setHasDetectedFinger] = useState(false);
 
@@ -185,8 +225,11 @@ function WellnessChallenge({
 
   const targetPosRef = useRef(generateRandomTarget());
 
+  // PHASE 2 STEP 2 (NEW) — initial velocity now uses getTargetSpeed(0)
+  // instead of the old flat TARGET_SPEED constant, so difficulty is
+  // consistent from the very first target.
   const targetVelRef = useRef(
-    generateRandomVelocity(TARGET_SPEED)
+    generateRandomVelocity(getTargetSpeed(0))
   );
 
   const targetNodeRef = useRef(null);
@@ -206,6 +249,13 @@ function WellnessChallenge({
   const lastTransformRef = useRef(null);
 
   const targetHitTimeoutRef = useRef(null);
+
+  // PHASE 2 STEP 2 (NEW) — mirrors `score` synchronously so
+  // handleTargetHit can compute the *post-increment* score without
+  // depending on React's async state batching (avoids a stale-score
+  // bug where the new velocity would be calculated from the old
+  // score on rapid consecutive hits).
+  const scoreRef = useRef(0);
 
   // ============================================================
   // VIDEO TRANSFORM
@@ -354,21 +404,44 @@ function WellnessChallenge({
   }, []);
 
   // ============================================================
+  // PHASE 2 STEP 2 — DIFFICULTY SYNC (NEW)
+  // ============================================================
+  // Keeps scoreRef and the displayed difficulty label in sync with
+  // React's `score` state whenever it changes.
+
+  useEffect(() => {
+    scoreRef.current = score;
+    setDifficultyLabel(getDifficultyLabel(score));
+  }, [score]);
+
+  // ============================================================
   // TARGET HIT HANDLER
   // ============================================================
 
   const handleTargetHit = useCallback(() => {
-    setScore((prev) => prev + 1);
+    // PHASE 2 STEP 2 (NEW) — compute the POST-increment score
+    // synchronously via scoreRef, rather than reading the (stale,
+    // pre-update) `score` closure variable or relying on setScore's
+    // updater callback timing. This guarantees the new target's speed
+    // always reflects the score the player just achieved, even under
+    // rapid consecutive hits.
+    const nextScore = scoreRef.current + 1;
+    scoreRef.current = nextScore;
 
+    setScore(nextScore);
     setTargetHit(true);
+    setDifficultyLabel(getDifficultyLabel(nextScore));
 
     // New random position after successful hit.
     targetPosRef.current =
       generateRandomTarget();
 
-    // New random direction.
+    // PHASE 2 STEP 2 (NEW) — new direction uses the difficulty speed
+    // derived from the updated score, instead of the old flat
+    // TARGET_SPEED constant.
+    const nextSpeed = getTargetSpeed(nextScore);
     targetVelRef.current =
-      generateRandomVelocity(TARGET_SPEED);
+      generateRandomVelocity(nextSpeed);
 
     if (
       targetHitTimeoutRef.current !== null
@@ -716,6 +789,19 @@ function WellnessChallenge({
         Score:{' '}
         <span className="wellness-challenge__score-value">
           {score}
+        </span>
+      </div>
+
+      {/* ==============================================
+          PHASE 2 STEP 2 — DIFFICULTY INDICATOR (NEW)
+          ============================================== */}
+      <div
+        className="wellness-challenge__difficulty"
+        aria-label="Current difficulty"
+      >
+        Difficulty:{' '}
+        <span className="wellness-challenge__difficulty-value">
+          {difficultyLabel}
         </span>
       </div>
 
