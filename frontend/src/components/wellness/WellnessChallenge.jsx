@@ -59,6 +59,12 @@ function getDifficultyLabel(score) {
 // Expert's short interval.
 const STEERING_RATE = 6;
 
+// FIXED — new constant. Caps dt so a delayed/late animation frame
+// (tab backgrounded, GC pause, device wake) can't produce a huge
+// single-frame position jump. 100ms is generous enough to never
+// affect normal 60fps/30fps playback, but prevents "teleporting."
+const MAX_DT_SECONDS = 0.1;
+
 /**
  * PHASE 2 STEP 3 (PRESERVED)
  * Returns how often (in seconds) the target is allowed to pick a new
@@ -265,21 +271,16 @@ function WellnessChallenge({
   const targetLastFrameTimeRef = useRef(null);
 
   // ============================================================
-  // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED + FIXED)
+  // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED)
   // ============================================================
   // Timestamp (ms, matches requestAnimationFrame's timestamp) at
   // which the target is next allowed to pick a new direction. null
   // means "not yet initialized" — set on the first animation frame.
   const targetDirectionChangeRef = useRef(null);
 
-  // BUGFIX (NEW): remembers the direction-change interval that was
-  // last scheduled. Without this, once the interval was set to
-  // Infinity at Easy difficulty, the "if current === null" guard
-  // never fired again for later difficulty transitions (Medium/Hard/
-  // Expert), because Infinity is not null — so direction changes
-  // never started after leaving Easy without an intervening hit.
-  // Tracking the interval itself lets us detect a difficulty change
-  // and reschedule immediately, independent of hits.
+  // Remembers the direction-change interval that was last scheduled,
+  // so a difficulty transition (interval value change) is detected
+  // and rescheduled immediately, independent of hits.
   const targetDirectionIntervalRef = useRef(null);
 
   // The velocity we're currently steering the target's actual
@@ -304,7 +305,8 @@ function WellnessChallenge({
   // handleTargetHit can compute the *post-increment* score without
   // depending on React's async state batching (avoids a stale-score
   // bug where the new velocity would be calculated from the old
-  // score on rapid consecutive hits).
+  // score on rapid consecutive hits). handleTargetHit is now the
+  // SOLE writer of this ref — see FIXED note below.
   const scoreRef = useRef(0);
 
   // ============================================================
@@ -454,13 +456,19 @@ function WellnessChallenge({
   }, []);
 
   // ============================================================
-  // PHASE 2 STEP 2 — DIFFICULTY SYNC (PRESERVED)
+  // PHASE 2 STEP 2 — DIFFICULTY SYNC
   // ============================================================
-  // Keeps scoreRef and the displayed difficulty label in sync with
-  // React's `score` state whenever it changes.
+  // FIXED — removed the redundant `scoreRef.current = score` write
+  // that used to live here. handleTargetHit already sets
+  // scoreRef.current synchronously the instant a hit happens; having
+  // this effect ALSO write it (asynchronously, after render) created
+  // a theoretical race on rapid consecutive hits where a stale
+  // render's effect could overwrite a newer synchronous value,
+  // desyncing scoreRef from the true score used every animation
+  // frame for speed/interval calculations. This effect now only
+  // keeps the *display* difficulty label in sync with score.
 
   useEffect(() => {
-    scoreRef.current = score;
     setDifficultyLabel(getDifficultyLabel(score));
   }, [score]);
 
@@ -470,7 +478,8 @@ function WellnessChallenge({
 
   const handleTargetHit = useCallback(() => {
     // PHASE 2 STEP 2 (PRESERVED) — compute the POST-increment score
-    // synchronously via scoreRef, rather than reading the (stale,
+    // synchronously via scoreRef (now the ONLY writer of this ref —
+    // see FIXED note above), rather than reading the (stale,
     // pre-update) `score` closure variable or relying on setScore's
     // updater callback timing. This guarantees the new target's speed
     // always reflects the score the player just achieved, even under
@@ -492,12 +501,10 @@ function WellnessChallenge({
     targetVelRef.current =
       generateRandomVelocity(nextSpeed);
 
-    // PHASE 2 STEP 3 (PRESERVED + FIXED) — reset the direction-change
+    // PHASE 2 STEP 3 (PRESERVED) — reset the direction-change
     // schedule and clear any in-progress steering so the new target
     // starts on a clean straight-line velocity, exactly like a
-    // freshly spawned target. Also reset the interval-tracking ref
-    // (bugfix) so the animation loop's change-detection reinitializes
-    // cleanly rather than comparing against a stale interval.
+    // freshly spawned target.
     targetDirectionChangeRef.current = null;
     targetDirectionIntervalRef.current = null;
     targetDesiredVelRef.current = null;
@@ -531,10 +538,18 @@ function WellnessChallenge({
           timestamp;
       }
 
-      const dt =
+      // FIXED — dt is now clamped to MAX_DT_SECONDS. Without this, a
+      // delayed frame (tab backgrounded, GC pause, device wake from
+      // sleep) could produce a huge dt, causing the target to
+      // "teleport" a large distance in a single frame instead of
+      // moving smoothly, and potentially skip past the fingertip
+      // without a continuous collision check registering it.
+      const rawDt =
         (timestamp -
           targetLastFrameTimeRef.current) /
         1000;
+
+      const dt = Math.min(rawDt, MAX_DT_SECONDS);
 
       targetLastFrameTimeRef.current =
         timestamp;
@@ -555,13 +570,12 @@ function WellnessChallenge({
         scoreRef.current
       );
 
-      // BUGFIX: reschedule whenever the applicable interval itself
-      // has changed (i.e. the player crossed a difficulty threshold),
-      // not only when targetDirectionChangeRef.current is null. This
-      // is what makes Easy → Medium → Hard → Expert transitions start
-      // their new schedule immediately, even without an intervening
-      // hit — since Infinity !== 2.5 !== 1.2 !== 0.6, any threshold
-      // crossing is detected on the very next animation frame.
+      // Reschedule whenever the applicable interval itself has
+      // changed (i.e. the player crossed a difficulty threshold),
+      // not only when targetDirectionChangeRef.current is null —
+      // this is what makes Easy → Medium → Hard → Expert transitions
+      // start their new schedule immediately, even without an
+      // intervening hit.
       if (
         targetDirectionIntervalRef.current !== directionInterval
       ) {
@@ -574,12 +588,17 @@ function WellnessChallenge({
       }
 
       if (timestamp >= targetDirectionChangeRef.current) {
-        // Preserve the target's CURRENT speed magnitude — Step 3
-        // only ever changes direction, never speed. Step 2 remains
-        // solely responsible for how fast the target moves.
-        const currentSpeed =
-          Math.sqrt(vel.x * vel.x + vel.y * vel.y) ||
-          getTargetSpeed(scoreRef.current);
+        // FIXED — speed for the new direction now comes directly
+        // from getTargetSpeed(scoreRef.current) (the authoritative
+        // difficulty speed), instead of being derived from the
+        // current velocity's magnitude. Deriving it from vel's
+        // magnitude relied on renormalization staying perfectly
+        // exact across every prior direction change/bounce; reading
+        // it directly from getTargetSpeed removes that dependency
+        // entirely and guarantees steering can never drift the
+        // target's speed away from what the current difficulty
+        // intends (requirement: steering must never change speed).
+        const currentSpeed = getTargetSpeed(scoreRef.current);
 
         const angle = Math.random() * Math.PI * 2;
 
@@ -599,8 +618,8 @@ function WellnessChallenge({
 
         // Blend current velocity toward the desired direction —
         // smooth steering rather than an instant snap. Clamped to 1
-        // so a large dt (e.g. after a tab was backgrounded) can't
-        // overshoot into an unstable value.
+        // so a large dt can't overshoot into an unstable value (now
+        // doubly protected since dt itself is also clamped above).
         const steer = Math.min(STEERING_RATE * dt, 1);
 
         vel.x += (desired.x - vel.x) * steer;
@@ -609,9 +628,9 @@ function WellnessChallenge({
         // Re-normalize to the desired magnitude every frame during
         // steering — blending two vectors of equal magnitude can
         // otherwise produce a slightly shorter resultant vector
-        // (this is the standard "vector lerp shortens length"
-        // effect), which would very slightly slow the target down
-        // mid-turn if left uncorrected.
+        // (the standard "vector lerp shortens length" effect), which
+        // would very slightly slow the target down mid-turn if left
+        // uncorrected.
         const desiredSpeed = Math.sqrt(
           desired.x * desired.x + desired.y * desired.y
         );
@@ -638,7 +657,8 @@ function WellnessChallenge({
       }
 
       // ========================================================
-      // POSITION INTEGRATION (existing, unchanged formula)
+      // POSITION INTEGRATION (existing, unchanged formula — now
+      // fed a clamped dt, see FIXED note above)
       // ========================================================
 
       let nextX =
@@ -776,7 +796,7 @@ function WellnessChallenge({
       targetLastFrameTimeRef.current =
         null;
 
-      // PHASE 2 STEP 3 (PRESERVED + FIXED) — reset scheduling refs on
+      // PHASE 2 STEP 3 (PRESERVED) — reset scheduling refs on
       // cleanup so a remount (e.g. React Strict Mode) starts with a
       // clean slate rather than a stale scheduled timestamp/interval
       // from a previous run.
