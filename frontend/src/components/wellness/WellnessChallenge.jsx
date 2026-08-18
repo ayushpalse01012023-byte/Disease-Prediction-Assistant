@@ -11,7 +11,8 @@ const HIT_TOLERANCE_PX = 14;
 const CURSOR_SMOOTHING_FACTOR = 0.55;
 
 // ============================================================
-// PHASE 2 STEP 2 — PROGRESSIVE DIFFICULTY (PRESERVED)
+// PHASE 2 STEP 2 — PROGRESSIVE DIFFICULTY (PRESERVED, RETAINED
+// BUT NOT INVOKED FROM THE PHASE 3 STEP 1 TARGET LOOP BELOW)
 // ============================================================
 // Base/starting speed (same value as Step 1's old constant) and a
 // sensible maximum so the challenge never becomes unplayable.
@@ -30,6 +31,10 @@ const SPEED_RAMP_SCORE = 25;
  * MAX_TARGET_SPEED as score approaches SPEED_RAMP_SCORE, then stays
  * capped at MAX_TARGET_SPEED beyond that. Never returns undefined —
  * negative/undefined/NaN scores fall back to 0.
+ *
+ * Not called by the Phase 3 Step 1 static-sequence target loop, but
+ * kept intact and still used to seed targetVelRef's initial value
+ * (unused for movement in Step 1, but preserved per instructions).
  */
 function getTargetSpeed(score) {
   const safeScore = Number.isFinite(score) && score > 0 ? score : 0;
@@ -51,28 +56,26 @@ function getDifficultyLabel(score) {
 }
 
 // ============================================================
-// PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED)
+// PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED, RETAINED
+// BUT NOT INVOKED FROM THE PHASE 3 STEP 1 TARGET LOOP BELOW)
 // ============================================================
 // How aggressively the current velocity steers toward a newly chosen
-// direction each frame. Higher = snappier turn-in. Tuned so direction
-// changes read as smooth curves rather than instant snaps, even at
-// Expert's short interval.
+// direction each frame. Not used by the static Phase 3 Step 1 target,
+// but kept per instructions not to delete Phase 2 constants.
 const STEERING_RATE = 6;
 
-// FIXED — new constant. Caps dt so a delayed/late animation frame
-// (tab backgrounded, GC pause, device wake) can't produce a huge
-// single-frame position jump. 100ms is generous enough to never
-// affect normal 60fps/30fps playback, but prevents "teleporting."
+// Caps dt so a delayed/late animation frame (tab backgrounded, GC
+// pause, device wake) can't produce a huge single-frame position
+// jump. Retained; still applied to the frame-timing bookkeeping in
+// the Phase 3 loop even though position is now static, to keep the
+// animation-frame timing infrastructure consistent.
 const MAX_DT_SECONDS = 0.1;
 
 /**
  * PHASE 2 STEP 3 (PRESERVED)
  * Returns how often (in seconds) the target is allowed to pick a new
- * movement direction, based on score/difficulty. Thresholds
- * intentionally match getDifficultyLabel's (5 / 10 / 20) so the
- * direction-change behavior and the displayed difficulty label always
- * agree. Easy returns Infinity — no scheduled direction changes, so
- * movement stays the Step 2 straight-line-plus-bounce behavior.
+ * movement direction, based on score/difficulty. Not called by the
+ * Phase 3 Step 1 static-sequence target loop, but kept intact.
  */
 function getDirectionChangeInterval(score) {
   const safeScore = Number.isFinite(score) && score > 0 ? score : 0;
@@ -224,6 +227,26 @@ function isCollision(
   );
 }
 
+// ============================================================
+// PHASE 3 STEP 1 — MEMORY / ORDERED TARGET
+// ============================================================
+
+// Fixed sequence length for Step 1.
+const MEMORY_SEQUENCE_LENGTH = 5;
+
+/**
+ * PHASE 3 STEP 1 — MEMORY / ORDERED TARGET
+ * Generates a fixed-length array of random normalized target
+ * positions using the existing generateRandomTarget() helper, so
+ * every position respects the existing TARGET_MARGIN boundary safety.
+ */
+function generateTargetSequence(length) {
+  return Array.from(
+    { length },
+    () => generateRandomTarget()
+  );
+}
+
 function WellnessChallenge({
   videoRef,
   indexFingerTips = [],
@@ -242,6 +265,30 @@ function WellnessChallenge({
   const [hasDetectedFinger, setHasDetectedFinger] = useState(false);
 
   // ============================================================
+  // PHASE 3 STEP 1 — MEMORY / ORDERED TARGET (NEW)
+  // ============================================================
+  // The fixed sequence of 5 random target positions for this round.
+  // Generated once via lazy useState initializer and never
+  // regenerated on re-render.
+  const targetSequenceRef = useRef(
+    generateTargetSequence(MEMORY_SEQUENCE_LENGTH)
+  );
+
+  // Index of the currently active (collidable) target within the
+  // sequence. Only this target participates in collision detection.
+  const activeTargetIndexRef = useRef(0);
+
+  // Mirrors activeTargetIndexRef synchronously for the animation loop
+  // to read without depending on React state timing (same pattern as
+  // scoreRef below).
+  const sequenceCompleteRef = useRef(false);
+
+  // Display-only state, kept in sync with activeTargetIndexRef so the
+  // "Sequence: X / 5" UI can render. 1-based for display.
+  const [sequencePosition, setSequencePosition] = useState(1);
+  const [sequenceComplete, setSequenceComplete] = useState(false);
+
+  // ============================================================
   // PHASE 1 — FINGERTIP TRACKING
   // KEEP THIS SECTION FROZEN
   // ============================================================
@@ -254,12 +301,17 @@ function WellnessChallenge({
   // ============================================================
   // PHASE 2 — MOVING TARGET
   // ============================================================
+  // PHASE 3 STEP 1 (NEW): targetPosRef is now initialized directly
+  // from the first sequence position, since Step 1 targets are
+  // static and driven by targetSequenceRef/activeTargetIndexRef
+  // rather than physics. It's still the single source of truth for
+  // "where is the target right now," which the DOM-position and
+  // collision code below both continue to read from unchanged.
+  const targetPosRef = useRef(targetSequenceRef.current[0]);
 
-  const targetPosRef = useRef(generateRandomTarget());
-
-  // PHASE 2 STEP 2 (PRESERVED) — initial velocity uses getTargetSpeed(0)
-  // instead of a flat constant, so difficulty is consistent from the
-  // very first target.
+  // PHASE 2 STEP 2 (PRESERVED) — retained per instructions not to
+  // delete Phase 2 state, but NOT read/written by the Phase 3 Step 1
+  // animation loop below (movement is disabled for Step 1).
   const targetVelRef = useRef(
     generateRandomVelocity(getTargetSpeed(0))
   );
@@ -271,22 +323,11 @@ function WellnessChallenge({
   const targetLastFrameTimeRef = useRef(null);
 
   // ============================================================
-  // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED)
+  // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED, UNUSED
+  // BY THE PHASE 3 STEP 1 LOOP)
   // ============================================================
-  // Timestamp (ms, matches requestAnimationFrame's timestamp) at
-  // which the target is next allowed to pick a new direction. null
-  // means "not yet initialized" — set on the first animation frame.
   const targetDirectionChangeRef = useRef(null);
-
-  // Remembers the direction-change interval that was last scheduled,
-  // so a difficulty transition (interval value change) is detected
-  // and rescheduled immediately, independent of hits.
   const targetDirectionIntervalRef = useRef(null);
-
-  // The velocity we're currently steering the target's actual
-  // velocity toward. null means no direction change is in progress —
-  // the target continues on its current straight-line velocity
-  // (subject to boundary bouncing) exactly as in Step 1/Step 2.
   const targetDesiredVelRef = useRef(null);
 
   // ============================================================
@@ -303,10 +344,7 @@ function WellnessChallenge({
 
   // PHASE 2 STEP 2 (PRESERVED) — mirrors `score` synchronously so
   // handleTargetHit can compute the *post-increment* score without
-  // depending on React's async state batching (avoids a stale-score
-  // bug where the new velocity would be calculated from the old
-  // score on rapid consecutive hits). handleTargetHit is now the
-  // SOLE writer of this ref — see FIXED note below.
+  // depending on React's async state batching.
   const scoreRef = useRef(0);
 
   // ============================================================
@@ -456,17 +494,10 @@ function WellnessChallenge({
   }, []);
 
   // ============================================================
-  // PHASE 2 STEP 2 — DIFFICULTY SYNC
+  // PHASE 2 STEP 2 — DIFFICULTY SYNC (PRESERVED)
   // ============================================================
-  // FIXED — removed the redundant `scoreRef.current = score` write
-  // that used to live here. handleTargetHit already sets
-  // scoreRef.current synchronously the instant a hit happens; having
-  // this effect ALSO write it (asynchronously, after render) created
-  // a theoretical race on rapid consecutive hits where a stale
-  // render's effect could overwrite a newer synchronous value,
-  // desyncing scoreRef from the true score used every animation
-  // frame for speed/interval calculations. This effect now only
-  // keeps the *display* difficulty label in sync with score.
+  // Keeps the displayed difficulty label in sync with score.
+  // handleTargetHit remains the sole writer of scoreRef.current.
 
   useEffect(() => {
     setDifficultyLabel(getDifficultyLabel(score));
@@ -478,11 +509,7 @@ function WellnessChallenge({
 
   const handleTargetHit = useCallback(() => {
     // PHASE 2 STEP 2 (PRESERVED) — compute the POST-increment score
-    // synchronously via scoreRef (now the ONLY writer of this ref —
-    // see FIXED note above), rather than reading the (stale,
-    // pre-update) `score` closure variable or relying on setScore's
-    // updater callback timing. This guarantees the new target's speed
-    // always reflects the score the player just achieved, even under
+    // synchronously via scoreRef, guaranteeing correctness even under
     // rapid consecutive hits.
     const nextScore = scoreRef.current + 1;
     scoreRef.current = nextScore;
@@ -490,24 +517,6 @@ function WellnessChallenge({
     setScore(nextScore);
     setTargetHit(true);
     setDifficultyLabel(getDifficultyLabel(nextScore));
-
-    // New random position after successful hit.
-    targetPosRef.current =
-      generateRandomTarget();
-
-    // PHASE 2 STEP 2 (PRESERVED) — new direction/speed uses the
-    // difficulty speed derived from the updated score.
-    const nextSpeed = getTargetSpeed(nextScore);
-    targetVelRef.current =
-      generateRandomVelocity(nextSpeed);
-
-    // PHASE 2 STEP 3 (PRESERVED) — reset the direction-change
-    // schedule and clear any in-progress steering so the new target
-    // starts on a clean straight-line velocity, exactly like a
-    // freshly spawned target.
-    targetDirectionChangeRef.current = null;
-    targetDirectionIntervalRef.current = null;
-    targetDesiredVelRef.current = null;
 
     if (
       targetHitTimeoutRef.current !== null
@@ -523,10 +532,49 @@ function WellnessChallenge({
 
         targetHitTimeoutRef.current = null;
       }, 600);
+
+    // ==========================================================
+    // PHASE 3 STEP 1 — MEMORY / ORDERED TARGET (NEW)
+    // ==========================================================
+    // Advance to the next target in the fixed sequence. Only the
+    // active (current) target can ever reach this handler, since
+    // collision detection in the animation loop below only ever
+    // checks targetPosRef.current, which always equals the CURRENT
+    // sequence position — future targets are never rendered or
+    // checked, so out-of-order hits are structurally impossible
+    // rather than merely validated after the fact.
+    const nextIndex = activeTargetIndexRef.current + 1;
+
+    if (nextIndex >= MEMORY_SEQUENCE_LENGTH) {
+      // Final target of the sequence was just hit.
+      activeTargetIndexRef.current = MEMORY_SEQUENCE_LENGTH - 1;
+      sequenceCompleteRef.current = true;
+      setSequenceComplete(true);
+      setSequencePosition(MEMORY_SEQUENCE_LENGTH);
+      // Collision progression stops because the animation loop below
+      // skips all collision checks once sequenceCompleteRef.current
+      // is true — no further hits can register.
+    } else {
+      activeTargetIndexRef.current = nextIndex;
+      setSequencePosition(nextIndex + 1);
+      // targetPosRef.current is updated by the animation loop on its
+      // next frame, reading the new activeTargetIndexRef — no manual
+      // position assignment needed here.
+    }
   }, []);
 
   // ============================================================
   // PHASE 2 — MOVING TARGET + CONTINUOUS COLLISION
+  // PHASE 3 STEP 1 (NEW): the Phase 2/3 velocity, steering, and
+  // boundary-bounce logic that used to run here has been REMOVED
+  // FROM THIS LOOP (not deleted from the file — see the preserved
+  // constants/helpers above). For Step 1, the target is STATIC: its
+  // position is simply read from targetSequenceRef at the current
+  // activeTargetIndexRef every frame. The loop still runs via the
+  // SAME single requestAnimationFrame architecture as before, so DOM
+  // positioning and continuous collision detection remain unchanged
+  // in structure — only the "how is targetPosRef.current computed"
+  // step changed.
   // ============================================================
 
   useEffect(() => {
@@ -538,168 +586,27 @@ function WellnessChallenge({
           timestamp;
       }
 
-      // FIXED — dt is now clamped to MAX_DT_SECONDS. Without this, a
-      // delayed frame (tab backgrounded, GC pause, device wake from
-      // sleep) could produce a huge dt, causing the target to
-      // "teleport" a large distance in a single frame instead of
-      // moving smoothly, and potentially skip past the fingertip
-      // without a continuous collision check registering it.
-      const rawDt =
-        (timestamp -
-          targetLastFrameTimeRef.current) /
-        1000;
-
-      const dt = Math.min(rawDt, MAX_DT_SECONDS);
-
       targetLastFrameTimeRef.current =
         timestamp;
 
-      const pos = targetPosRef.current;
-      const vel = targetVelRef.current;
-
       // ========================================================
-      // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED + FIXED)
+      // PHASE 3 STEP 1 — STATIC ACTIVE TARGET POSITION (NEW)
       // ========================================================
-      // Decide whether it's time to pick a new direction, then
-      // smoothly steer the current velocity toward it. This runs
-      // BEFORE position integration so the steered velocity is what
-      // actually moves the target this frame. Speed (Step 2's
-      // concern) is explicitly preserved — only direction changes.
-
-      const directionInterval = getDirectionChangeInterval(
-        scoreRef.current
-      );
-
-      // Reschedule whenever the applicable interval itself has
-      // changed (i.e. the player crossed a difficulty threshold),
-      // not only when targetDirectionChangeRef.current is null —
-      // this is what makes Easy → Medium → Hard → Expert transitions
-      // start their new schedule immediately, even without an
-      // intervening hit.
-      if (
-        targetDirectionIntervalRef.current !== directionInterval
-      ) {
-        targetDirectionIntervalRef.current = directionInterval;
-
-        targetDirectionChangeRef.current =
-          directionInterval === Infinity
-            ? Infinity
-            : timestamp + directionInterval * 1000;
-      }
-
-      if (timestamp >= targetDirectionChangeRef.current) {
-        // FIXED — speed for the new direction now comes directly
-        // from getTargetSpeed(scoreRef.current) (the authoritative
-        // difficulty speed), instead of being derived from the
-        // current velocity's magnitude. Deriving it from vel's
-        // magnitude relied on renormalization staying perfectly
-        // exact across every prior direction change/bounce; reading
-        // it directly from getTargetSpeed removes that dependency
-        // entirely and guarantees steering can never drift the
-        // target's speed away from what the current difficulty
-        // intends (requirement: steering must never change speed).
-        const currentSpeed = getTargetSpeed(scoreRef.current);
-
-        const angle = Math.random() * Math.PI * 2;
-
-        targetDesiredVelRef.current = {
-          x: Math.cos(angle) * currentSpeed,
-          y: Math.sin(angle) * currentSpeed,
-        };
-
-        targetDirectionChangeRef.current =
-          directionInterval === Infinity
-            ? Infinity
-            : timestamp + directionInterval * 1000;
-      }
-
-      if (targetDesiredVelRef.current) {
-        const desired = targetDesiredVelRef.current;
-
-        // Blend current velocity toward the desired direction —
-        // smooth steering rather than an instant snap. Clamped to 1
-        // so a large dt can't overshoot into an unstable value (now
-        // doubly protected since dt itself is also clamped above).
-        const steer = Math.min(STEERING_RATE * dt, 1);
-
-        vel.x += (desired.x - vel.x) * steer;
-        vel.y += (desired.y - vel.y) * steer;
-
-        // Re-normalize to the desired magnitude every frame during
-        // steering — blending two vectors of equal magnitude can
-        // otherwise produce a slightly shorter resultant vector
-        // (the standard "vector lerp shortens length" effect), which
-        // would very slightly slow the target down mid-turn if left
-        // uncorrected.
-        const desiredSpeed = Math.sqrt(
-          desired.x * desired.x + desired.y * desired.y
-        );
-        const currentBlendSpeed = Math.sqrt(
-          vel.x * vel.x + vel.y * vel.y
-        );
-
-        if (currentBlendSpeed > 0.0001 && desiredSpeed > 0.0001) {
-          const scale = desiredSpeed / currentBlendSpeed;
-          vel.x *= scale;
-          vel.y *= scale;
-        }
-
-        // Once the velocity has essentially reached the desired
-        // direction, stop steering (idle cost avoidance) until the
-        // next scheduled direction change.
-        const dot =
-          (vel.x * desired.x + vel.y * desired.y) /
-          (desiredSpeed * desiredSpeed || 1);
-
-        if (dot > 0.999) {
-          targetDesiredVelRef.current = null;
-        }
+      // No velocity, no steering, no bouncing, no progressive speed
+      // for Step 1 — the active target simply sits at its assigned
+      // sequence position until hit. Position is only read from the
+      // sequence while the round is still in progress; once complete,
+      // targetPosRef.current is left exactly where it was (the final
+      // target), so the completed target stays visible in place.
+      if (!sequenceCompleteRef.current) {
+        targetPosRef.current =
+          targetSequenceRef.current[
+            activeTargetIndexRef.current
+          ];
       }
 
       // ========================================================
-      // POSITION INTEGRATION (existing, unchanged formula — now
-      // fed a clamped dt, see FIXED note above)
-      // ========================================================
-
-      let nextX =
-        pos.x + vel.x * dt;
-
-      let nextY =
-        pos.y + vel.y * dt;
-
-      const minX = TARGET_MARGIN;
-      const maxX = 1 - TARGET_MARGIN;
-
-      const minY = TARGET_MARGIN;
-      const maxY = 1 - TARGET_MARGIN;
-
-      // ========================================================
-      // TARGET BOUNCING
-      // ========================================================
-
-      if (nextX <= minX) {
-        nextX = minX;
-        vel.x = Math.abs(vel.x);
-      } else if (nextX >= maxX) {
-        nextX = maxX;
-        vel.x = -Math.abs(vel.x);
-      }
-
-      if (nextY <= minY) {
-        nextY = minY;
-        vel.y = Math.abs(vel.y);
-      } else if (nextY >= maxY) {
-        nextY = maxY;
-        vel.y = -Math.abs(vel.y);
-      }
-
-      targetPosRef.current = {
-        x: nextX,
-        y: nextY,
-      };
-
-      // ========================================================
-      // TARGET DOM POSITION
+      // TARGET DOM POSITION (existing mechanism, unchanged)
       // ========================================================
 
       const transform =
@@ -728,46 +635,50 @@ function WellnessChallenge({
       }
 
       // ========================================================
-      // CONTINUOUS COLLISION DETECTION
+      // CONTINUOUS COLLISION DETECTION (existing mechanism,
+      // unchanged geometry/functions — gated off once the sequence
+      // is complete, per "stop collision progression" requirement)
       // ========================================================
 
-      const fingerTip =
-        fingerTipRawRef.current;
-
-      if (
-        fingerTip &&
-        transform &&
-        transform.width &&
-        transform.height
-      ) {
-        const fingerPx =
-          normalizedToOverlayCoords(
-            fingerTip,
-            transform
-          );
-
-        const targetPx =
-          normalizedToOverlayCoords(
-            targetPosRef.current,
-            transform
-          );
-
-        const hit = isCollision(
-          fingerPx,
-          targetPx,
-          TARGET_RADIUS_PX,
-          HIT_TOLERANCE_PX
-        );
+      if (!sequenceCompleteRef.current) {
+        const fingerTip =
+          fingerTipRawRef.current;
 
         if (
-          hit &&
-          !hitLockRef.current
+          fingerTip &&
+          transform &&
+          transform.width &&
+          transform.height
         ) {
-          hitLockRef.current = true;
+          const fingerPx =
+            normalizedToOverlayCoords(
+              fingerTip,
+              transform
+            );
 
-          handleTargetHit();
-        } else if (!hit) {
-          hitLockRef.current = false;
+          const targetPx =
+            normalizedToOverlayCoords(
+              targetPosRef.current,
+              transform
+            );
+
+          const hit = isCollision(
+            fingerPx,
+            targetPx,
+            TARGET_RADIUS_PX,
+            HIT_TOLERANCE_PX
+          );
+
+          if (
+            hit &&
+            !hitLockRef.current
+          ) {
+            hitLockRef.current = true;
+
+            handleTargetHit();
+          } else if (!hit) {
+            hitLockRef.current = false;
+          }
         }
       }
 
@@ -798,8 +709,8 @@ function WellnessChallenge({
 
       // PHASE 2 STEP 3 (PRESERVED) — reset scheduling refs on
       // cleanup so a remount (e.g. React Strict Mode) starts with a
-      // clean slate rather than a stale scheduled timestamp/interval
-      // from a previous run.
+      // clean slate. Unused by Step 1's static loop, but reset for
+      // consistency/safety should a later phase reintroduce movement.
       targetDirectionChangeRef.current = null;
       targetDirectionIntervalRef.current = null;
       targetDesiredVelRef.current = null;
@@ -850,6 +761,9 @@ function WellnessChallenge({
         )
       : null;
 
+  // PHASE 3 STEP 1 (NEW) — status text now accounts for sequence
+  // completion, ahead of the existing hit/idle branches. Camera and
+  // hand-tracking status branches above it are unchanged.
   const statusLabel =
     !hasVideoBox
       ? 'Waiting for camera video to render…'
@@ -857,9 +771,11 @@ function WellnessChallenge({
       ? 'Waiting for hand tracking to start…'
       : !lastKnownFingerTip
       ? 'Hand tracking active — show your hand to the camera.'
+      : sequenceComplete
+      ? 'Sequence Complete!'
       : targetHit
-      ? 'Target hit!'
-      : 'Hand detected — move your index finger to the target.';
+      ? 'Target hit! Find the next target.'
+      : 'Hand detected — find the target.';
 
   // ============================================================
   // OVERLAY
@@ -880,7 +796,10 @@ function WellnessChallenge({
           aria-hidden="true"
         >
           {/* ==================================================
-              MOVING TARGET
+              ACTIVE SEQUENCE TARGET (PHASE 3 STEP 1)
+              Still uses the existing .wellness-challenge__target
+              class/styling — only ever one target rendered at a
+              time, matching the "show only current target" rule.
               ================================================== */}
 
           <div
@@ -986,6 +905,18 @@ function WellnessChallenge({
         <span className="wellness-challenge__difficulty-value">
           {difficultyLabel}
         </span>
+      </div>
+
+      {/* ==============================================
+          PHASE 3 STEP 1 — SEQUENCE PROGRESS INDICATOR (NEW)
+          ============================================== */}
+      <div
+        className="wellness-challenge__sequence"
+        aria-label="Sequence progress"
+      >
+        {sequenceComplete
+          ? 'Sequence Complete!'
+          : `Sequence: ${sequencePosition} / ${MEMORY_SEQUENCE_LENGTH}`}
       </div>
 
       <p
