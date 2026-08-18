@@ -11,7 +11,7 @@ const HIT_TOLERANCE_PX = 14;
 const CURSOR_SMOOTHING_FACTOR = 0.55;
 
 // ============================================================
-// PHASE 2 STEP 2 — PROGRESSIVE DIFFICULTY (NEW)
+// PHASE 2 STEP 2 — PROGRESSIVE DIFFICULTY (PRESERVED)
 // ============================================================
 // Base/starting speed (same value as Step 1's old constant) and a
 // sensible maximum so the challenge never becomes unplayable.
@@ -24,7 +24,7 @@ const MAX_TARGET_SPEED = 0.22;
 const SPEED_RAMP_SCORE = 25;
 
 /**
- * PHASE 2 STEP 2 (NEW)
+ * PHASE 2 STEP 2 (PRESERVED)
  * Computes the target's movement speed for a given score. Increases
  * smoothly (not in abrupt steps) from BASE_TARGET_SPEED up to
  * MAX_TARGET_SPEED as score approaches SPEED_RAMP_SCORE, then stays
@@ -38,7 +38,7 @@ function getTargetSpeed(score) {
 }
 
 /**
- * PHASE 2 STEP 2 (NEW)
+ * PHASE 2 STEP 2 (PRESERVED)
  * Derives a human-readable difficulty label from score, kept in sync
  * with getTargetSpeed's thresholds purely for display purposes.
  */
@@ -48,6 +48,32 @@ function getDifficultyLabel(score) {
   if (safeScore >= 10) return 'Hard';
   if (safeScore >= 5) return 'Medium';
   return 'Easy';
+}
+
+// ============================================================
+// PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (NEW)
+// ============================================================
+// How aggressively the current velocity steers toward a newly chosen
+// direction each frame. Higher = snappier turn-in. Tuned so direction
+// changes read as smooth curves rather than instant snaps, even at
+// Expert's short interval.
+const STEERING_RATE = 6;
+
+/**
+ * PHASE 2 STEP 3 (NEW)
+ * Returns how often (in seconds) the target is allowed to pick a new
+ * movement direction, based on score/difficulty. Thresholds
+ * intentionally match getDifficultyLabel's (5 / 10 / 20) so the
+ * direction-change behavior and the displayed difficulty label always
+ * agree. Easy returns Infinity — no scheduled direction changes, so
+ * movement stays the Step 2 straight-line-plus-bounce behavior.
+ */
+function getDirectionChangeInterval(score) {
+  const safeScore = Number.isFinite(score) && score > 0 ? score : 0;
+  if (safeScore >= 20) return 0.6; // Expert — frequent, unpredictable
+  if (safeScore >= 10) return 1.2; // Hard — noticeably more frequent
+  if (safeScore >= 5) return 2.5; // Medium — occasional changes
+  return Infinity; // Easy — effectively straight-line + bounce only
 }
 
 function computeVideoDisplayTransform(videoEl) {
@@ -202,8 +228,8 @@ function WellnessChallenge({
   const [score, setScore] = useState(0);
   const [targetHit, setTargetHit] = useState(false);
 
-  // PHASE 2 STEP 2 (NEW) — difficulty label for display, kept in sync
-  // with score via the effect below.
+  // PHASE 2 STEP 2 (PRESERVED) — difficulty label for display, kept
+  // in sync with score via the effect below.
   const [difficultyLabel, setDifficultyLabel] = useState(() => getDifficultyLabel(0));
 
   const [lastKnownFingerTip, setLastKnownFingerTip] = useState(null);
@@ -225,9 +251,9 @@ function WellnessChallenge({
 
   const targetPosRef = useRef(generateRandomTarget());
 
-  // PHASE 2 STEP 2 (NEW) — initial velocity now uses getTargetSpeed(0)
-  // instead of the old flat TARGET_SPEED constant, so difficulty is
-  // consistent from the very first target.
+  // PHASE 2 STEP 2 (PRESERVED) — initial velocity uses getTargetSpeed(0)
+  // instead of a flat constant, so difficulty is consistent from the
+  // very first target.
   const targetVelRef = useRef(
     generateRandomVelocity(getTargetSpeed(0))
   );
@@ -237,6 +263,20 @@ function WellnessChallenge({
   const targetAnimRafRef = useRef(null);
 
   const targetLastFrameTimeRef = useRef(null);
+
+  // ============================================================
+  // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (NEW)
+  // ============================================================
+  // Timestamp (ms, matches requestAnimationFrame's timestamp) at
+  // which the target is next allowed to pick a new direction. null
+  // means "not yet initialized" — set on the first animation frame.
+  const targetDirectionChangeRef = useRef(null);
+
+  // The velocity we're currently steering the target's actual
+  // velocity toward. null means no direction change is in progress —
+  // the target continues on its current straight-line velocity
+  // (subject to boundary bouncing) exactly as in Step 1/Step 2.
+  const targetDesiredVelRef = useRef(null);
 
   // ============================================================
   // SHARED REFS
@@ -250,7 +290,7 @@ function WellnessChallenge({
 
   const targetHitTimeoutRef = useRef(null);
 
-  // PHASE 2 STEP 2 (NEW) — mirrors `score` synchronously so
+  // PHASE 2 STEP 2 (PRESERVED) — mirrors `score` synchronously so
   // handleTargetHit can compute the *post-increment* score without
   // depending on React's async state batching (avoids a stale-score
   // bug where the new velocity would be calculated from the old
@@ -404,7 +444,7 @@ function WellnessChallenge({
   }, []);
 
   // ============================================================
-  // PHASE 2 STEP 2 — DIFFICULTY SYNC (NEW)
+  // PHASE 2 STEP 2 — DIFFICULTY SYNC (PRESERVED)
   // ============================================================
   // Keeps scoreRef and the displayed difficulty label in sync with
   // React's `score` state whenever it changes.
@@ -419,7 +459,7 @@ function WellnessChallenge({
   // ============================================================
 
   const handleTargetHit = useCallback(() => {
-    // PHASE 2 STEP 2 (NEW) — compute the POST-increment score
+    // PHASE 2 STEP 2 (PRESERVED) — compute the POST-increment score
     // synchronously via scoreRef, rather than reading the (stale,
     // pre-update) `score` closure variable or relying on setScore's
     // updater callback timing. This guarantees the new target's speed
@@ -436,12 +476,20 @@ function WellnessChallenge({
     targetPosRef.current =
       generateRandomTarget();
 
-    // PHASE 2 STEP 2 (NEW) — new direction uses the difficulty speed
-    // derived from the updated score, instead of the old flat
-    // TARGET_SPEED constant.
+    // PHASE 2 STEP 2 (PRESERVED) — new direction/speed uses the
+    // difficulty speed derived from the updated score.
     const nextSpeed = getTargetSpeed(nextScore);
     targetVelRef.current =
       generateRandomVelocity(nextSpeed);
+
+    // PHASE 2 STEP 3 (NEW) — reset the direction-change schedule and
+    // clear any in-progress steering so the new target starts on a
+    // clean straight-line velocity, exactly like a freshly spawned
+    // target. Setting the timer ref to null makes the animation loop
+    // reinitialize it on its next frame using the current timestamp
+    // and the (now-updated) difficulty's interval.
+    targetDirectionChangeRef.current = null;
+    targetDesiredVelRef.current = null;
 
     if (
       targetHitTimeoutRef.current !== null
@@ -482,6 +530,94 @@ function WellnessChallenge({
 
       const pos = targetPosRef.current;
       const vel = targetVelRef.current;
+
+      // ========================================================
+      // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (NEW)
+      // ========================================================
+      // Decide whether it's time to pick a new direction, then
+      // smoothly steer the current velocity toward it. This runs
+      // BEFORE position integration so the steered velocity is what
+      // actually moves the target this frame. Speed (Step 2's
+      // concern) is explicitly preserved — only direction changes.
+
+      const directionInterval = getDirectionChangeInterval(
+        scoreRef.current
+      );
+
+      if (targetDirectionChangeRef.current === null) {
+        targetDirectionChangeRef.current =
+          directionInterval === Infinity
+            ? Infinity
+            : timestamp + directionInterval * 1000;
+      }
+
+      if (timestamp >= targetDirectionChangeRef.current) {
+        // Preserve the target's CURRENT speed magnitude — Step 3
+        // only ever changes direction, never speed. Step 2 remains
+        // solely responsible for how fast the target moves.
+        const currentSpeed =
+          Math.sqrt(vel.x * vel.x + vel.y * vel.y) ||
+          getTargetSpeed(scoreRef.current);
+
+        const angle = Math.random() * Math.PI * 2;
+
+        targetDesiredVelRef.current = {
+          x: Math.cos(angle) * currentSpeed,
+          y: Math.sin(angle) * currentSpeed,
+        };
+
+        targetDirectionChangeRef.current =
+          directionInterval === Infinity
+            ? Infinity
+            : timestamp + directionInterval * 1000;
+      }
+
+      if (targetDesiredVelRef.current) {
+        const desired = targetDesiredVelRef.current;
+
+        // Blend current velocity toward the desired direction —
+        // smooth steering rather than an instant snap. Clamped to 1
+        // so a large dt (e.g. after a tab was backgrounded) can't
+        // overshoot into an unstable value.
+        const steer = Math.min(STEERING_RATE * dt, 1);
+
+        vel.x += (desired.x - vel.x) * steer;
+        vel.y += (desired.y - vel.y) * steer;
+
+        // Re-normalize to the desired magnitude every frame during
+        // steering — blending two vectors of equal magnitude can
+        // otherwise produce a slightly shorter resultant vector
+        // (this is the standard "vector lerp shortens length"
+        // effect), which would very slightly slow the target down
+        // mid-turn if left uncorrected.
+        const desiredSpeed = Math.sqrt(
+          desired.x * desired.x + desired.y * desired.y
+        );
+        const currentBlendSpeed = Math.sqrt(
+          vel.x * vel.x + vel.y * vel.y
+        );
+
+        if (currentBlendSpeed > 0.0001 && desiredSpeed > 0.0001) {
+          const scale = desiredSpeed / currentBlendSpeed;
+          vel.x *= scale;
+          vel.y *= scale;
+        }
+
+        // Once the velocity has essentially reached the desired
+        // direction, stop steering (idle cost avoidance) until the
+        // next scheduled direction change.
+        const dot =
+          (vel.x * desired.x + vel.y * desired.y) /
+          (desiredSpeed * desiredSpeed || 1);
+
+        if (dot > 0.999) {
+          targetDesiredVelRef.current = null;
+        }
+      }
+
+      // ========================================================
+      // POSITION INTEGRATION (existing, unchanged formula)
+      // ========================================================
 
       let nextX =
         pos.x + vel.x * dt;
@@ -617,6 +753,12 @@ function WellnessChallenge({
 
       targetLastFrameTimeRef.current =
         null;
+
+      // PHASE 2 STEP 3 (NEW) — reset scheduling refs on cleanup so a
+      // remount (e.g. React Strict Mode) starts with a clean slate
+      // rather than a stale scheduled timestamp from a previous run.
+      targetDirectionChangeRef.current = null;
+      targetDesiredVelRef.current = null;
     };
   }, [handleTargetHit]);
 
@@ -792,9 +934,6 @@ function WellnessChallenge({
         </span>
       </div>
 
-      {/* ==============================================
-          PHASE 2 STEP 2 — DIFFICULTY INDICATOR (NEW)
-          ============================================== */}
       <div
         className="wellness-challenge__difficulty"
         aria-label="Current difficulty"
