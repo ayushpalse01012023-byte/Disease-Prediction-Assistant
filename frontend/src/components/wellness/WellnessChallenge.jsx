@@ -12,7 +12,7 @@ const CURSOR_SMOOTHING_FACTOR = 0.55;
 
 // ============================================================
 // PHASE 2 STEP 2 — PROGRESSIVE DIFFICULTY (PRESERVED, RETAINED
-// BUT NOT INVOKED FROM THE PHASE 3 STEP 1 TARGET LOOP BELOW)
+// BUT NOT INVOKED FROM THE PHASE 3 STEP 1/2 TARGET LOOP BELOW)
 // ============================================================
 // Base/starting speed (same value as Step 1's old constant) and a
 // sensible maximum so the challenge never becomes unplayable.
@@ -32,9 +32,9 @@ const SPEED_RAMP_SCORE = 25;
  * capped at MAX_TARGET_SPEED beyond that. Never returns undefined —
  * negative/undefined/NaN scores fall back to 0.
  *
- * Not called by the Phase 3 Step 1 static-sequence target loop, but
- * kept intact and still used to seed targetVelRef's initial value
- * (unused for movement in Step 1, but preserved per instructions).
+ * Not called by the Phase 3 static-sequence target loop, but kept
+ * intact and still used to seed targetVelRef's initial value (unused
+ * for movement in Phase 3, but preserved per instructions).
  */
 function getTargetSpeed(score) {
   const safeScore = Number.isFinite(score) && score > 0 ? score : 0;
@@ -57,11 +57,11 @@ function getDifficultyLabel(score) {
 
 // ============================================================
 // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED, RETAINED
-// BUT NOT INVOKED FROM THE PHASE 3 STEP 1 TARGET LOOP BELOW)
+// BUT NOT INVOKED FROM THE PHASE 3 TARGET LOOP BELOW)
 // ============================================================
 // How aggressively the current velocity steers toward a newly chosen
-// direction each frame. Not used by the static Phase 3 Step 1 target,
-// but kept per instructions not to delete Phase 2 constants.
+// direction each frame. Not used by the static Phase 3 target, but
+// kept per instructions not to delete Phase 2 constants.
 const STEERING_RATE = 6;
 
 // Caps dt so a delayed/late animation frame (tab backgrounded, GC
@@ -75,7 +75,7 @@ const MAX_DT_SECONDS = 0.1;
  * PHASE 2 STEP 3 (PRESERVED)
  * Returns how often (in seconds) the target is allowed to pick a new
  * movement direction, based on score/difficulty. Not called by the
- * Phase 3 Step 1 static-sequence target loop, but kept intact.
+ * Phase 3 static-sequence target loop, but kept intact.
  */
 function getDirectionChangeInterval(score) {
   const safeScore = Number.isFinite(score) && score > 0 ? score : 0;
@@ -231,7 +231,7 @@ function isCollision(
 // PHASE 3 STEP 1 — MEMORY / ORDERED TARGET
 // ============================================================
 
-// Fixed sequence length for Step 1.
+// Fixed sequence length for each round.
 const MEMORY_SEQUENCE_LENGTH = 5;
 
 /**
@@ -246,6 +246,13 @@ function generateTargetSequence(length) {
     () => generateRandomTarget()
   );
 }
+
+// ============================================================
+// PHASE 3 STEP 2 — AUTOMATIC SEQUENCE RESTART
+// ============================================================
+// How long to hold on "Sequence Complete!" before the next round's
+// first target appears. Short transition delay per requirement #3.
+const SEQUENCE_RESTART_DELAY_MS = 1200;
 
 function WellnessChallenge({
   videoRef,
@@ -265,11 +272,12 @@ function WellnessChallenge({
   const [hasDetectedFinger, setHasDetectedFinger] = useState(false);
 
   // ============================================================
-  // PHASE 3 STEP 1 — MEMORY / ORDERED TARGET (NEW)
+  // PHASE 3 STEP 1 — MEMORY / ORDERED TARGET
   // ============================================================
-  // The fixed sequence of 5 random target positions for this round.
-  // Generated once via lazy useState initializer and never
-  // regenerated on re-render.
+  // The fixed sequence of 5 random target positions for the current
+  // round. Generated once initially and REPLACED (not regenerated on
+  // every re-render) whenever a new round starts — see Phase 3 Step 2
+  // restart logic below.
   const targetSequenceRef = useRef(
     generateTargetSequence(MEMORY_SEQUENCE_LENGTH)
   );
@@ -278,15 +286,26 @@ function WellnessChallenge({
   // sequence. Only this target participates in collision detection.
   const activeTargetIndexRef = useRef(0);
 
-  // Mirrors activeTargetIndexRef synchronously for the animation loop
-  // to read without depending on React state timing (same pattern as
-  // scoreRef below).
+  // Mirrors sequence-complete state synchronously for the animation
+  // loop to read without depending on React state timing (same
+  // pattern as scoreRef below).
   const sequenceCompleteRef = useRef(false);
 
   // Display-only state, kept in sync with activeTargetIndexRef so the
   // "Sequence: X / 5" UI can render. 1-based for display.
   const [sequencePosition, setSequencePosition] = useState(1);
   const [sequenceComplete, setSequenceComplete] = useState(false);
+
+  // PHASE 3 STEP 2 (NEW) — holds the pending "start next round" timer
+  // so it can be cleared on unmount (requirement #13) and so a hit
+  // that arrives during the transition window can never schedule a
+  // second, overlapping restart.
+  const sequenceRestartTimeoutRef = useRef(null);
+
+  // PHASE 3 STEP 2 (NEW) — tracks whether this component is still
+  // mounted, so the restart timeout callback can avoid calling
+  // setState after unmount if it happens to fire in that window.
+  const isMountedRef = useRef(true);
 
   // ============================================================
   // PHASE 1 — FINGERTIP TRACKING
@@ -301,17 +320,17 @@ function WellnessChallenge({
   // ============================================================
   // PHASE 2 — MOVING TARGET
   // ============================================================
-  // PHASE 3 STEP 1 (NEW): targetPosRef is now initialized directly
-  // from the first sequence position, since Step 1 targets are
-  // static and driven by targetSequenceRef/activeTargetIndexRef
-  // rather than physics. It's still the single source of truth for
-  // "where is the target right now," which the DOM-position and
-  // collision code below both continue to read from unchanged.
+  // PHASE 3 STEP 1: targetPosRef is initialized directly from the
+  // first sequence position, since Phase 3 targets are static and
+  // driven by targetSequenceRef/activeTargetIndexRef rather than
+  // physics. It remains the single source of truth for "where is the
+  // target right now," which the DOM-position and collision code
+  // below both continue to read from unchanged.
   const targetPosRef = useRef(targetSequenceRef.current[0]);
 
   // PHASE 2 STEP 2 (PRESERVED) — retained per instructions not to
-  // delete Phase 2 state, but NOT read/written by the Phase 3 Step 1
-  // animation loop below (movement is disabled for Step 1).
+  // delete Phase 2 state, but NOT read/written by the Phase 3
+  // animation loop below (movement is disabled for Phase 3).
   const targetVelRef = useRef(
     generateRandomVelocity(getTargetSpeed(0))
   );
@@ -324,7 +343,7 @@ function WellnessChallenge({
 
   // ============================================================
   // PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN (PRESERVED, UNUSED
-  // BY THE PHASE 3 STEP 1 LOOP)
+  // BY THE PHASE 3 LOOP)
   // ============================================================
   const targetDirectionChangeRef = useRef(null);
   const targetDirectionIntervalRef = useRef(null);
@@ -503,6 +522,48 @@ function WellnessChallenge({
     setDifficultyLabel(getDifficultyLabel(score));
   }, [score]);
 
+  // PHASE 3 STEP 2 (NEW) — mount/unmount tracking so the sequence
+  // restart timeout can safely no-op if it fires after unmount.
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // ============================================================
+  // PHASE 3 STEP 2 — AUTOMATIC SEQUENCE RESTART (NEW)
+  // ============================================================
+  /**
+   * Starts a brand-new round: generates a fresh 5-target sequence,
+   * resets the active index/progress/completion state, and clears
+   * hitLockRef so the new round's first target can be collided with
+   * immediately. Does NOT touch score/scoreRef — score is explicitly
+   * preserved across rounds per requirement #7.
+   */
+  const startNewSequence = useCallback(() => {
+    if (!isMountedRef.current) return;
+
+    // Fresh 5 random positions, still respecting TARGET_MARGIN via
+    // the existing generateTargetSequence()/generateRandomTarget()
+    // helpers — unchanged from Phase 3 Step 1.
+    targetSequenceRef.current = generateTargetSequence(
+      MEMORY_SEQUENCE_LENGTH
+    );
+
+    activeTargetIndexRef.current = 0;
+    targetPosRef.current = targetSequenceRef.current[0];
+
+    // Re-enable collision detection for the new round BEFORE
+    // resetting hitLockRef, so the very first frame of the new round
+    // starts from a clean, unlocked state (requirement #6).
+    sequenceCompleteRef.current = false;
+    hitLockRef.current = false;
+
+    setSequenceComplete(false);
+    setSequencePosition(1);
+  }, []);
+
   // ============================================================
   // TARGET HIT HANDLER
   // ============================================================
@@ -510,7 +571,8 @@ function WellnessChallenge({
   const handleTargetHit = useCallback(() => {
     // PHASE 2 STEP 2 (PRESERVED) — compute the POST-increment score
     // synchronously via scoreRef, guaranteeing correctness even under
-    // rapid consecutive hits.
+    // rapid consecutive hits. Never reset elsewhere — score persists
+    // across sequence restarts per requirement #7.
     const nextScore = scoreRef.current + 1;
     scoreRef.current = nextScore;
 
@@ -534,7 +596,7 @@ function WellnessChallenge({
       }, 600);
 
     // ==========================================================
-    // PHASE 3 STEP 1 — MEMORY / ORDERED TARGET (NEW)
+    // PHASE 3 STEP 1 — MEMORY / ORDERED TARGET
     // ==========================================================
     // Advance to the next target in the fixed sequence. Only the
     // active (current) target can ever reach this handler, since
@@ -553,7 +615,28 @@ function WellnessChallenge({
       setSequencePosition(MEMORY_SEQUENCE_LENGTH);
       // Collision progression stops because the animation loop below
       // skips all collision checks once sequenceCompleteRef.current
-      // is true — no further hits can register.
+      // is true — this is also what prevents target 5 from being
+      // counted twice during the transition window (requirement #6).
+
+      // ========================================================
+      // PHASE 3 STEP 2 — AUTOMATIC SEQUENCE RESTART (NEW)
+      // ========================================================
+      // Schedule the next round to begin automatically after a short
+      // transition delay. Any previously-pending restart timer is
+      // cleared first as a safety net — under the current logic only
+      // one such timer can ever be scheduled at a time (collision
+      // detection is disabled the instant sequenceCompleteRef becomes
+      // true, so a second "final hit" cannot occur before this timer
+      // fires), but clearing defensively keeps this robust against
+      // future changes.
+      if (sequenceRestartTimeoutRef.current !== null) {
+        clearTimeout(sequenceRestartTimeoutRef.current);
+      }
+
+      sequenceRestartTimeoutRef.current = setTimeout(() => {
+        sequenceRestartTimeoutRef.current = null;
+        startNewSequence();
+      }, SEQUENCE_RESTART_DELAY_MS);
     } else {
       activeTargetIndexRef.current = nextIndex;
       setSequencePosition(nextIndex + 1);
@@ -561,20 +644,19 @@ function WellnessChallenge({
       // next frame, reading the new activeTargetIndexRef — no manual
       // position assignment needed here.
     }
-  }, []);
+  }, [startNewSequence]);
 
   // ============================================================
   // PHASE 2 — MOVING TARGET + CONTINUOUS COLLISION
-  // PHASE 3 STEP 1 (NEW): the Phase 2/3 velocity, steering, and
-  // boundary-bounce logic that used to run here has been REMOVED
-  // FROM THIS LOOP (not deleted from the file — see the preserved
-  // constants/helpers above). For Step 1, the target is STATIC: its
-  // position is simply read from targetSequenceRef at the current
-  // activeTargetIndexRef every frame. The loop still runs via the
-  // SAME single requestAnimationFrame architecture as before, so DOM
-  // positioning and continuous collision detection remain unchanged
-  // in structure — only the "how is targetPosRef.current computed"
-  // step changed.
+  // PHASE 3: the Phase 2/3 velocity, steering, and boundary-bounce
+  // logic that used to run here has been REMOVED FROM THIS LOOP (not
+  // deleted from the file — see the preserved constants/helpers
+  // above). The target is STATIC: its position is simply read from
+  // targetSequenceRef at the current activeTargetIndexRef every
+  // frame. The loop still runs via the SAME single
+  // requestAnimationFrame architecture as before, so DOM positioning
+  // and continuous collision detection remain unchanged in structure
+  // — only the "how is targetPosRef.current computed" step changed.
   // ============================================================
 
   useEffect(() => {
@@ -590,14 +672,16 @@ function WellnessChallenge({
         timestamp;
 
       // ========================================================
-      // PHASE 3 STEP 1 — STATIC ACTIVE TARGET POSITION (NEW)
+      // PHASE 3 — STATIC ACTIVE TARGET POSITION
       // ========================================================
-      // No velocity, no steering, no bouncing, no progressive speed
-      // for Step 1 — the active target simply sits at its assigned
-      // sequence position until hit. Position is only read from the
-      // sequence while the round is still in progress; once complete,
+      // No velocity, no steering, no bouncing, no progressive speed —
+      // the active target simply sits at its assigned sequence
+      // position until hit. Position is only read from the sequence
+      // while the round is still in progress; once complete,
       // targetPosRef.current is left exactly where it was (the final
-      // target), so the completed target stays visible in place.
+      // target), so the completed target stays visible in place
+      // during the transition delay, until startNewSequence() swaps
+      // in the fresh sequence's first position.
       if (!sequenceCompleteRef.current) {
         targetPosRef.current =
           targetSequenceRef.current[
@@ -636,8 +720,9 @@ function WellnessChallenge({
 
       // ========================================================
       // CONTINUOUS COLLISION DETECTION (existing mechanism,
-      // unchanged geometry/functions — gated off once the sequence
-      // is complete, per "stop collision progression" requirement)
+      // unchanged geometry/functions — gated off while the sequence
+      // is complete, i.e. during the Phase 3 Step 2 transition
+      // window, per "stop collision progression" requirement)
       // ========================================================
 
       if (!sequenceCompleteRef.current) {
@@ -709,7 +794,7 @@ function WellnessChallenge({
 
       // PHASE 2 STEP 3 (PRESERVED) — reset scheduling refs on
       // cleanup so a remount (e.g. React Strict Mode) starts with a
-      // clean slate. Unused by Step 1's static loop, but reset for
+      // clean slate. Unused by the Phase 3 static loop, but reset for
       // consistency/safety should a later phase reintroduce movement.
       targetDirectionChangeRef.current = null;
       targetDirectionIntervalRef.current = null;
@@ -731,6 +816,15 @@ function WellnessChallenge({
         );
 
         targetHitTimeoutRef.current = null;
+      }
+
+      // PHASE 3 STEP 2 (NEW) — clear any pending sequence-restart
+      // timer on unmount, per requirement #13, so it can never fire
+      // and call setState/startNewSequence after the component is
+      // gone.
+      if (sequenceRestartTimeoutRef.current !== null) {
+        clearTimeout(sequenceRestartTimeoutRef.current);
+        sequenceRestartTimeoutRef.current = null;
       }
     };
   }, []);
@@ -761,9 +855,12 @@ function WellnessChallenge({
         )
       : null;
 
-  // PHASE 3 STEP 1 (NEW) — status text now accounts for sequence
+  // PHASE 3 STEP 1 (PRESERVED) — status text accounts for sequence
   // completion, ahead of the existing hit/idle branches. Camera and
-  // hand-tracking status branches above it are unchanged.
+  // hand-tracking status branches above it are unchanged. During the
+  // Phase 3 Step 2 transition window, sequenceComplete stays true
+  // until startNewSequence() flips it back to false, so this message
+  // naturally covers that entire window without extra state.
   const statusLabel =
     !hasVideoBox
       ? 'Waiting for camera video to render…'
@@ -796,7 +893,7 @@ function WellnessChallenge({
           aria-hidden="true"
         >
           {/* ==================================================
-              ACTIVE SEQUENCE TARGET (PHASE 3 STEP 1)
+              ACTIVE SEQUENCE TARGET (PHASE 3)
               Still uses the existing .wellness-challenge__target
               class/styling — only ever one target rendered at a
               time, matching the "show only current target" rule.
@@ -908,7 +1005,11 @@ function WellnessChallenge({
       </div>
 
       {/* ==============================================
-          PHASE 3 STEP 1 — SEQUENCE PROGRESS INDICATOR (NEW)
+          PHASE 3 STEP 1 — SEQUENCE PROGRESS INDICATOR
+          (PHASE 3 STEP 2 note: this automatically returns to
+          "Sequence: 1 / 5" once startNewSequence() runs, with no
+          extra UI code needed — sequencePosition/sequenceComplete
+          are the same state driving both steps.)
           ============================================== */}
       <div
         className="wellness-challenge__sequence"
