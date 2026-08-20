@@ -341,13 +341,8 @@ function WellnessChallenge({
   // unmount.
   const previewTimeoutRef = useRef(null);
 
-  // Guards the one-time "start the very first memorization" kickoff
-  // effect against running twice under React Strict Mode's dev-only
-  // double-invoke of effects.
-  const hasInitializedRef = useRef(false);
-
   // ============================================================
-  // PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (NEW)
+  // PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (PRESERVED)
   // ============================================================
   // How many targets have been successfully recalled in the CURRENT
   // round. Reset to 0 at the start of every new sequence (see
@@ -615,7 +610,9 @@ function WellnessChallenge({
    * Safe to call multiple times: any previously scheduled preview
    * timeout is cleared first, so calling this again always starts a
    * single, fresh preview chain rather than layering multiple
-   * concurrent chains (requirement #50).
+   * concurrent chains. This idempotency is what makes it safe to
+   * call unconditionally from the mount effect below, including on
+   * React Strict Mode's development-only remount pass.
    */
   const startMemorization = useCallback(() => {
     if (!isMountedRef.current) return;
@@ -671,16 +668,32 @@ function WellnessChallenge({
     runPreviewStep(0);
   }, []);
 
-  // Kick off the very first memorization preview once, on mount.
-  // Guarded by hasInitializedRef so React Strict Mode's dev-only
-  // double-invoke of this effect can't start two overlapping preview
-  // chains (requirement #49) — startMemorization is also internally
-  // safe to call twice regardless, since it clears any prior pending
-  // timeout before scheduling a new chain.
+  // BUGFIX — Kick off the memorization preview on mount.
+  //
+  // Previously this effect was guarded by a `hasInitializedRef` ref
+  // so it would only call startMemorization() once. That guard was
+  // the actual cause of the game getting permanently stuck on
+  // "Memorize the sequence...": under React 18 Strict Mode's
+  // development-only mount → cleanup → remount cycle, the component
+  // instance (and therefore all its refs) is NOT destroyed — only
+  // effects are torn down and re-run. The CLEANUP effect further
+  // below (which clears targetHitTimeoutRef / sequenceRestartTimeoutRef
+  // / previewTimeoutRef) runs during that simulated unmount and wipes
+  // out the in-flight preview timer. On the subsequent remount, this
+  // effect ran again, but the (still-true) hasInitializedRef guard
+  // prevented startMemorization() from being called a second time —
+  // so no new preview timer was ever scheduled, gamePhaseRef stayed
+  // stuck at 'memorizing' forever, and the collision block (gated on
+  // gamePhaseRef.current === 'recalling') never activated.
+  //
+  // The fix is to simply remove the guard and always call
+  // startMemorization() here. This is safe because startMemorization
+  // is itself idempotent — it clears any previously pending preview
+  // timeout before starting a fresh chain — so calling it twice (once
+  // on the real mount, once on Strict Mode's simulated remount) just
+  // restarts the same preview chain cleanly instead of leaving it
+  // dangling.
   useEffect(() => {
-    if (hasInitializedRef.current) return;
-    hasInitializedRef.current = true;
-
     startMemorization();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -718,9 +731,10 @@ function WellnessChallenge({
     setSequenceComplete(false);
     setSequencePosition(1);
 
-    // PHASE 3 STEP 4 (NEW) — reset the CURRENT round's recall count.
-    // Cumulative totals (completedSequenceCount, totalRecalledTargets,
-    // memoryAccuracy) are intentionally NOT touched here.
+    // PHASE 3 STEP 4 (PRESERVED) — reset the CURRENT round's recall
+    // count. Cumulative totals (completedSequenceCount,
+    // totalRecalledTargets, memoryAccuracy) are intentionally NOT
+    // touched here.
     currentRecallCountRef.current = 0;
     setCurrentRecallCount(0);
 
@@ -763,7 +777,7 @@ function WellnessChallenge({
       }, 600);
 
     // ==========================================================
-    // PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (NEW)
+    // PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (PRESERVED)
     // ==========================================================
     // This handler is ONLY ever invoked from the animation loop's
     // collision block, which is itself gated on
@@ -804,7 +818,7 @@ function WellnessChallenge({
       // ever being committed more than once for the same round).
 
       // ========================================================
-      // PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (NEW)
+      // PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (PRESERVED)
       // ========================================================
       // Commit this round's result to the cumulative memory
       // performance metrics. nextRecallCount is guaranteed to be
@@ -1061,9 +1075,13 @@ function WellnessChallenge({
       }
 
       // PHASE 3 STEP 3 (PRESERVED) — clear any pending preview-step
-      // timer on unmount, per requirement #48, so a scheduled preview
-      // step can never fire and touch refs/state after the component
-      // is gone.
+      // timer on unmount/Strict-Mode-simulated-unmount, so a
+      // scheduled preview step can never fire and touch refs/state
+      // after teardown. Note: on a REAL unmount this is terminal (the
+      // component is gone), but on Strict Mode's simulated
+      // unmount+remount, the mount effect above unconditionally calls
+      // startMemorization() again, which schedules a fresh preview
+      // timeout — so clearing here no longer leaves the game stuck.
       if (previewTimeoutRef.current !== null) {
         clearTimeout(previewTimeoutRef.current);
         previewTimeoutRef.current = null;
@@ -1117,10 +1135,10 @@ function WellnessChallenge({
       ? 'Target hit! Find the next target.'
       : 'Recall the sequence.';
 
-  // PHASE 3 STEP 4 (NEW) — display-only derived text for memory
-  // accuracy; the underlying `memoryAccuracy` state stays a number
-  // (or null) so the calculation itself never depends on string
-  // formatting.
+  // PHASE 3 STEP 4 (PRESERVED) — display-only derived text for
+  // memory accuracy; the underlying `memoryAccuracy` state stays a
+  // number (or null) so the calculation itself never depends on
+  // string formatting.
   const memoryAccuracyLabel =
     memoryAccuracy === null
       ? '--'
@@ -1275,7 +1293,8 @@ function WellnessChallenge({
       </div>
 
       {/* ==============================================
-          PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (NEW)
+          PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE
+          (PRESERVED)
           Display-only metrics; do not affect gameplay.
           ============================================== */}
       <div
