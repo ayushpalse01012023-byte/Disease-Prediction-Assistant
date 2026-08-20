@@ -12,7 +12,7 @@ const CURSOR_SMOOTHING_FACTOR = 0.55;
 
 // ============================================================
 // PHASE 2 STEP 2 — PROGRESSIVE DIFFICULTY (PRESERVED, RETAINED
-// BUT NOT INVOKED FROM THE PHASE 3 STEP 1/2 TARGET LOOP BELOW)
+// BUT NOT INVOKED FROM THE PHASE 3 TARGET LOOP BELOW)
 // ============================================================
 // Base/starting speed (same value as Step 1's old constant) and a
 // sensible maximum so the challenge never becomes unplayable.
@@ -251,8 +251,17 @@ function generateTargetSequence(length) {
 // PHASE 3 STEP 2 — AUTOMATIC SEQUENCE RESTART
 // ============================================================
 // How long to hold on "Sequence Complete!" before the next round's
-// first target appears. Short transition delay per requirement #3.
+// memorization preview begins.
 const SEQUENCE_RESTART_DELAY_MS = 1200;
+
+// ============================================================
+// PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (NEW)
+// ============================================================
+// How long each target is shown during the memorization preview, and
+// how long the gap between consecutive previewed targets is. Named
+// constants per requirement #41 so they're easy to tune later.
+const PREVIEW_DURATION_MS = 700;
+const PREVIEW_GAP_MS = 200;
 
 function WellnessChallenge({
   videoRef,
@@ -296,16 +305,46 @@ function WellnessChallenge({
   const [sequencePosition, setSequencePosition] = useState(1);
   const [sequenceComplete, setSequenceComplete] = useState(false);
 
-  // PHASE 3 STEP 2 (NEW) — holds the pending "start next round" timer
-  // so it can be cleared on unmount (requirement #13) and so a hit
-  // that arrives during the transition window can never schedule a
-  // second, overlapping restart.
+  // PHASE 3 STEP 2 (PRESERVED) — holds the pending "start next round"
+  // timer so it can be cleared on unmount and so a hit that arrives
+  // during the transition window can never schedule a second,
+  // overlapping restart.
   const sequenceRestartTimeoutRef = useRef(null);
 
-  // PHASE 3 STEP 2 (NEW) — tracks whether this component is still
-  // mounted, so the restart timeout callback can avoid calling
-  // setState after unmount if it happens to fire in that window.
+  // PHASE 3 STEP 2 (PRESERVED) — tracks whether this component is
+  // still mounted, so timer callbacks can avoid calling setState
+  // after unmount if they happen to fire in that window.
   const isMountedRef = useRef(true);
+
+  // ============================================================
+  // PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (NEW)
+  // ============================================================
+  // Explicit game-phase ref: 'memorizing' | 'recalling'. Sequence
+  // completion is tracked separately via sequenceCompleteRef/
+  // sequenceComplete (unchanged from Step 2) and takes visual
+  // precedence over both phases once true. Kept as a ref (not state)
+  // since it's read every animation frame and doesn't need to drive
+  // re-renders on its own — only the mirrored `isMemorizing` state
+  // below drives UI text.
+  const gamePhaseRef = useRef('memorizing');
+  const [isMemorizing, setIsMemorizing] = useState(true);
+
+  // Which sequence index is currently being previewed, and whether
+  // that preview target should be visible on THIS frame (used to
+  // implement "target N appears, then disappears, then target N+1
+  // appears" per requirement #41, without any React re-render).
+  const previewIndexRef = useRef(0);
+  const previewVisibleRef = useRef(false);
+
+  // Holds the currently pending preview-step timeout so it can be
+  // cleared defensively (avoids overlapping preview chains) and on
+  // unmount.
+  const previewTimeoutRef = useRef(null);
+
+  // Guards the one-time "start the very first memorization" kickoff
+  // effect against running twice under React Strict Mode's dev-only
+  // double-invoke of effects.
+  const hasInitializedRef = useRef(false);
 
   // ============================================================
   // PHASE 1 — FINGERTIP TRACKING
@@ -320,12 +359,13 @@ function WellnessChallenge({
   // ============================================================
   // PHASE 2 — MOVING TARGET
   // ============================================================
-  // PHASE 3 STEP 1: targetPosRef is initialized directly from the
-  // first sequence position, since Phase 3 targets are static and
-  // driven by targetSequenceRef/activeTargetIndexRef rather than
-  // physics. It remains the single source of truth for "where is the
-  // target right now," which the DOM-position and collision code
-  // below both continue to read from unchanged.
+  // PHASE 3: targetPosRef is initialized directly from the first
+  // sequence position, since Phase 3 targets are static and driven
+  // by targetSequenceRef/activeTargetIndexRef (and, from Step 3
+  // onward, previewIndexRef during memorization) rather than physics.
+  // It remains the single source of truth for "where is the target
+  // right now," which the DOM-position and collision code below both
+  // continue to read from unchanged.
   const targetPosRef = useRef(targetSequenceRef.current[0]);
 
   // PHASE 2 STEP 2 (PRESERVED) — retained per instructions not to
@@ -522,8 +562,8 @@ function WellnessChallenge({
     setDifficultyLabel(getDifficultyLabel(score));
   }, [score]);
 
-  // PHASE 3 STEP 2 (NEW) — mount/unmount tracking so the sequence
-  // restart timeout can safely no-op if it fires after unmount.
+  // PHASE 3 STEP 2 (PRESERVED) — mount/unmount tracking so timer
+  // callbacks can safely no-op if they fire after unmount.
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -532,14 +572,100 @@ function WellnessChallenge({
   }, []);
 
   // ============================================================
-  // PHASE 3 STEP 2 — AUTOMATIC SEQUENCE RESTART (NEW)
+  // PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (NEW)
+  // ============================================================
+  /**
+   * Runs the memorization preview for the CURRENT targetSequenceRef
+   * (never generates a second/independent sequence — requirement
+   * #30-32), showing each target for PREVIEW_DURATION_MS with a
+   * PREVIEW_GAP_MS gap between them, then transitions into recall
+   * mode. Collision, score, and activeTargetIndexRef are untouched
+   * for the entire duration of this function's preview chain
+   * (requirements #27-29).
+   *
+   * Safe to call multiple times: any previously scheduled preview
+   * timeout is cleared first, so calling this again always starts a
+   * single, fresh preview chain rather than layering multiple
+   * concurrent chains (requirement #50).
+   */
+  const startMemorization = useCallback(() => {
+    if (!isMountedRef.current) return;
+
+    if (previewTimeoutRef.current !== null) {
+      clearTimeout(previewTimeoutRef.current);
+      previewTimeoutRef.current = null;
+    }
+
+    gamePhaseRef.current = 'memorizing';
+    setIsMemorizing(true);
+
+    const runPreviewStep = (index) => {
+      if (!isMountedRef.current) return;
+
+      if (index >= MEMORY_SEQUENCE_LENGTH) {
+        // Preview finished — enter recall mode. Requirements #33/#34:
+        // activeTargetIndexRef must be 0 and targetPosRef must point
+        // to sequence[0] at this exact point.
+        activeTargetIndexRef.current = 0;
+        targetPosRef.current = targetSequenceRef.current[0];
+
+        // Collision becomes enabled only now (requirement #35), via
+        // gamePhaseRef flipping to 'recalling' below — the animation
+        // loop's collision block is gated on this exact value.
+        sequenceCompleteRef.current = false;
+        hitLockRef.current = false;
+        gamePhaseRef.current = 'recalling';
+
+        if (isMountedRef.current) {
+          setIsMemorizing(false);
+          setSequencePosition(1);
+        }
+
+        previewTimeoutRef.current = null;
+        return;
+      }
+
+      previewIndexRef.current = index;
+      previewVisibleRef.current = true;
+
+      previewTimeoutRef.current = setTimeout(() => {
+        if (!isMountedRef.current) return;
+
+        previewVisibleRef.current = false;
+
+        previewTimeoutRef.current = setTimeout(() => {
+          runPreviewStep(index + 1);
+        }, PREVIEW_GAP_MS);
+      }, PREVIEW_DURATION_MS);
+    };
+
+    runPreviewStep(0);
+  }, []);
+
+  // Kick off the very first memorization preview once, on mount.
+  // Guarded by hasInitializedRef so React Strict Mode's dev-only
+  // double-invoke of this effect can't start two overlapping preview
+  // chains (requirement #49) — startMemorization is also internally
+  // safe to call twice regardless, since it clears any prior pending
+  // timeout before scheduling a new chain.
+  useEffect(() => {
+    if (hasInitializedRef.current) return;
+    hasInitializedRef.current = true;
+
+    startMemorization();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ============================================================
+  // PHASE 3 STEP 2 — AUTOMATIC SEQUENCE RESTART (PRESERVED +
+  // UPDATED FOR PHASE 3 STEP 3)
   // ============================================================
   /**
    * Starts a brand-new round: generates a fresh 5-target sequence,
-   * resets the active index/progress/completion state, and clears
-   * hitLockRef so the new round's first target can be collided with
-   * immediately. Does NOT touch score/scoreRef — score is explicitly
-   * preserved across rounds per requirement #7.
+   * resets progress/completion state, then enters the memorization
+   * preview (Phase 3 Step 3) before recall is enabled. Does NOT touch
+   * score/scoreRef — score is explicitly preserved across rounds per
+   * requirement #18/#19.
    */
   const startNewSequence = useCallback(() => {
     if (!isMountedRef.current) return;
@@ -554,15 +680,18 @@ function WellnessChallenge({
     activeTargetIndexRef.current = 0;
     targetPosRef.current = targetSequenceRef.current[0];
 
-    // Re-enable collision detection for the new round BEFORE
-    // resetting hitLockRef, so the very first frame of the new round
-    // starts from a clean, unlocked state (requirement #6).
     sequenceCompleteRef.current = false;
     hitLockRef.current = false;
 
     setSequenceComplete(false);
     setSequencePosition(1);
-  }, []);
+
+    // PHASE 3 STEP 3 (NEW) — every new sequence starts with a
+    // memorization preview rather than going straight to recall.
+    // startMemorization() itself sets gamePhaseRef back to
+    // 'memorizing' and disables collision for the preview's duration.
+    startMemorization();
+  }, [startMemorization]);
 
   // ============================================================
   // TARGET HIT HANDLER
@@ -572,7 +701,7 @@ function WellnessChallenge({
     // PHASE 2 STEP 2 (PRESERVED) — compute the POST-increment score
     // synchronously via scoreRef, guaranteeing correctness even under
     // rapid consecutive hits. Never reset elsewhere — score persists
-    // across sequence restarts per requirement #7.
+    // across sequence restarts per requirement #18/#19.
     const nextScore = scoreRef.current + 1;
     scoreRef.current = nextScore;
 
@@ -601,10 +730,10 @@ function WellnessChallenge({
     // Advance to the next target in the fixed sequence. Only the
     // active (current) target can ever reach this handler, since
     // collision detection in the animation loop below only ever
-    // checks targetPosRef.current, which always equals the CURRENT
-    // sequence position — future targets are never rendered or
-    // checked, so out-of-order hits are structurally impossible
-    // rather than merely validated after the fact.
+    // checks targetPosRef.current while gamePhaseRef is 'recalling'
+    // — future targets and preview targets are never checked, so
+    // out-of-order hits are structurally impossible rather than
+    // merely validated after the fact.
     const nextIndex = activeTargetIndexRef.current + 1;
 
     if (nextIndex >= MEMORY_SEQUENCE_LENGTH) {
@@ -616,25 +745,19 @@ function WellnessChallenge({
       // Collision progression stops because the animation loop below
       // skips all collision checks once sequenceCompleteRef.current
       // is true — this is also what prevents target 5 from being
-      // counted twice during the transition window (requirement #6).
+      // counted twice during the transition window.
 
       // ========================================================
-      // PHASE 3 STEP 2 — AUTOMATIC SEQUENCE RESTART (NEW)
+      // PHASE 3 STEP 2 — AUTOMATIC SEQUENCE RESTART (PRESERVED)
       // ========================================================
-      // Schedule the next round to begin automatically after a short
-      // transition delay. Any previously-pending restart timer is
-      // cleared first as a safety net — under the current logic only
-      // one such timer can ever be scheduled at a time (collision
-      // detection is disabled the instant sequenceCompleteRef becomes
-      // true, so a second "final hit" cannot occur before this timer
-      // fires), but clearing defensively keeps this robust against
-      // future changes.
       if (sequenceRestartTimeoutRef.current !== null) {
         clearTimeout(sequenceRestartTimeoutRef.current);
       }
 
       sequenceRestartTimeoutRef.current = setTimeout(() => {
         sequenceRestartTimeoutRef.current = null;
+        // PHASE 3 STEP 3 (NEW) — this now also starts the next
+        // round's memorization preview (see startNewSequence above).
         startNewSequence();
       }, SEQUENCE_RESTART_DELAY_MS);
     } else {
@@ -651,12 +774,13 @@ function WellnessChallenge({
   // PHASE 3: the Phase 2/3 velocity, steering, and boundary-bounce
   // logic that used to run here has been REMOVED FROM THIS LOOP (not
   // deleted from the file — see the preserved constants/helpers
-  // above). The target is STATIC: its position is simply read from
-  // targetSequenceRef at the current activeTargetIndexRef every
-  // frame. The loop still runs via the SAME single
-  // requestAnimationFrame architecture as before, so DOM positioning
-  // and continuous collision detection remain unchanged in structure
-  // — only the "how is targetPosRef.current computed" step changed.
+  // above). The target is STATIC: its position is read from either
+  // the live preview index (while memorizing) or the active sequence
+  // index (while recalling) every frame. The loop still runs via the
+  // SAME single requestAnimationFrame architecture as before, so DOM
+  // positioning and continuous collision detection remain unchanged
+  // in structure — only "how is targetPosRef.current computed, and
+  // is the target visible/collidable right now" changed.
   // ============================================================
 
   useEffect(() => {
@@ -672,25 +796,39 @@ function WellnessChallenge({
         timestamp;
 
       // ========================================================
-      // PHASE 3 — STATIC ACTIVE TARGET POSITION
+      // PHASE 3 STEP 3 — STATIC TARGET POSITION + VISIBILITY (NEW)
       // ========================================================
-      // No velocity, no steering, no bouncing, no progressive speed —
-      // the active target simply sits at its assigned sequence
-      // position until hit. Position is only read from the sequence
-      // while the round is still in progress; once complete,
-      // targetPosRef.current is left exactly where it was (the final
-      // target), so the completed target stays visible in place
-      // during the transition delay, until startNewSequence() swaps
-      // in the fresh sequence's first position.
-      if (!sequenceCompleteRef.current) {
+      // No velocity, no steering, no bouncing, no progressive speed
+      // for either memorization or recall. Position/visibility source
+      // depends entirely on the current game phase:
+      //   - 'memorizing': show/hide the CURRENTLY PREVIEWED target
+      //     from the SAME sequence that will later be used for recall
+      //     (requirement #30-32) — no collision, no score changes.
+      //   - 'recalling' (sequence not yet complete): show the active
+      //     sequence target, exactly as Phase 3 Step 1 behaved.
+      //   - sequence complete: leave the target exactly where it was
+      //     (the 5th/final target), visible, per Step 2 behavior,
+      //     until startNewSequence()/startMemorization() take over.
+      let targetVisible = true;
+
+      if (gamePhaseRef.current === 'memorizing') {
+        targetPosRef.current =
+          targetSequenceRef.current[previewIndexRef.current];
+        targetVisible = previewVisibleRef.current;
+      } else if (!sequenceCompleteRef.current) {
         targetPosRef.current =
           targetSequenceRef.current[
             activeTargetIndexRef.current
           ];
+        targetVisible = true;
+      } else {
+        targetVisible = true;
       }
 
       // ========================================================
-      // TARGET DOM POSITION (existing mechanism, unchanged)
+      // TARGET DOM POSITION (existing mechanism, now also toggling
+      // visibility for the memorization preview's "appear/disappear"
+      // behavior — requirement #41)
       // ========================================================
 
       const transform =
@@ -705,27 +843,37 @@ function WellnessChallenge({
         transform.height &&
         node
       ) {
-        const targetPx =
-          normalizedToOverlayCoords(
-            targetPosRef.current,
-            transform
-          );
+        if (targetVisible) {
+          node.style.display = '';
 
-        node.style.left =
-          `${targetPx.x}px`;
+          const targetPx =
+            normalizedToOverlayCoords(
+              targetPosRef.current,
+              transform
+            );
 
-        node.style.top =
-          `${targetPx.y}px`;
+          node.style.left =
+            `${targetPx.x}px`;
+
+          node.style.top =
+            `${targetPx.y}px`;
+        } else {
+          node.style.display = 'none';
+        }
       }
 
       // ========================================================
       // CONTINUOUS COLLISION DETECTION (existing mechanism,
-      // unchanged geometry/functions — gated off while the sequence
-      // is complete, i.e. during the Phase 3 Step 2 transition
-      // window, per "stop collision progression" requirement)
+      // unchanged geometry/functions — gated to ONLY run during
+      // active recall with an incomplete sequence, per requirements
+      // #3/#27-29: no collision during memorization, no collision
+      // once the sequence is complete)
       // ========================================================
 
-      if (!sequenceCompleteRef.current) {
+      if (
+        gamePhaseRef.current === 'recalling' &&
+        !sequenceCompleteRef.current
+      ) {
         const fingerTip =
           fingerTipRawRef.current;
 
@@ -818,13 +966,21 @@ function WellnessChallenge({
         targetHitTimeoutRef.current = null;
       }
 
-      // PHASE 3 STEP 2 (NEW) — clear any pending sequence-restart
-      // timer on unmount, per requirement #13, so it can never fire
-      // and call setState/startNewSequence after the component is
-      // gone.
+      // PHASE 3 STEP 2 (PRESERVED) — clear any pending
+      // sequence-restart timer on unmount, so it can never fire and
+      // call setState/startNewSequence after the component is gone.
       if (sequenceRestartTimeoutRef.current !== null) {
         clearTimeout(sequenceRestartTimeoutRef.current);
         sequenceRestartTimeoutRef.current = null;
+      }
+
+      // PHASE 3 STEP 3 (NEW) — clear any pending preview-step timer
+      // on unmount, per requirement #48, so a scheduled preview step
+      // can never fire and touch refs/state after the component is
+      // gone.
+      if (previewTimeoutRef.current !== null) {
+        clearTimeout(previewTimeoutRef.current);
+        previewTimeoutRef.current = null;
       }
     };
   }, []);
@@ -855,12 +1011,11 @@ function WellnessChallenge({
         )
       : null;
 
-  // PHASE 3 STEP 1 (PRESERVED) — status text accounts for sequence
-  // completion, ahead of the existing hit/idle branches. Camera and
-  // hand-tracking status branches above it are unchanged. During the
-  // Phase 3 Step 2 transition window, sequenceComplete stays true
-  // until startNewSequence() flips it back to false, so this message
-  // naturally covers that entire window without extra state.
+  // PHASE 3 STEP 3 (NEW) — status text now accounts for the
+  // memorization phase, ahead of the existing hit/idle branches.
+  // Camera and hand-tracking status branches above it are unchanged;
+  // sequence-complete still takes precedence over everything else
+  // below it, matching Step 2 behavior.
   const statusLabel =
     !hasVideoBox
       ? 'Waiting for camera video to render…'
@@ -870,9 +1025,11 @@ function WellnessChallenge({
       ? 'Hand tracking active — show your hand to the camera.'
       : sequenceComplete
       ? 'Sequence Complete!'
+      : isMemorizing
+      ? 'Memorize the sequence...'
       : targetHit
       ? 'Target hit! Find the next target.'
-      : 'Hand detected — find the target.';
+      : 'Recall the sequence.';
 
   // ============================================================
   // OVERLAY
@@ -893,10 +1050,12 @@ function WellnessChallenge({
           aria-hidden="true"
         >
           {/* ==================================================
-              ACTIVE SEQUENCE TARGET (PHASE 3)
+              ACTIVE / PREVIEW TARGET (PHASE 3)
               Still uses the existing .wellness-challenge__target
               class/styling — only ever one target rendered at a
-              time, matching the "show only current target" rule.
+              time; visibility during memorization is toggled via
+              node.style.display in the animation loop above, not
+              via conditional React rendering (avoids re-renders).
               ================================================== */}
 
           <div
@@ -1005,11 +1164,9 @@ function WellnessChallenge({
       </div>
 
       {/* ==============================================
-          PHASE 3 STEP 1 — SEQUENCE PROGRESS INDICATOR
-          (PHASE 3 STEP 2 note: this automatically returns to
-          "Sequence: 1 / 5" once startNewSequence() runs, with no
-          extra UI code needed — sequencePosition/sequenceComplete
-          are the same state driving both steps.)
+          PHASE 3 STEP 1/2/3 — SEQUENCE PROGRESS INDICATOR
+          (PHASE 3 STEP 3 note: now also reflects the
+          memorization phase per requirement #40.)
           ============================================== */}
       <div
         className="wellness-challenge__sequence"
@@ -1017,6 +1174,8 @@ function WellnessChallenge({
       >
         {sequenceComplete
           ? 'Sequence Complete!'
+          : isMemorizing
+          ? `Memorize: ${MEMORY_SEQUENCE_LENGTH} targets`
           : `Sequence: ${sequencePosition} / ${MEMORY_SEQUENCE_LENGTH}`}
       </div>
 
