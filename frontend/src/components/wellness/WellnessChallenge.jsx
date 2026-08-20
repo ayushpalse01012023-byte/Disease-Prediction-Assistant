@@ -255,7 +255,7 @@ function generateTargetSequence(length) {
 const SEQUENCE_RESTART_DELAY_MS = 1200;
 
 // ============================================================
-// PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (NEW)
+// PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (PRESERVED)
 // ============================================================
 // How long each target is shown during the memorization preview, and
 // how long the gap between consecutive previewed targets is. Named
@@ -317,7 +317,7 @@ function WellnessChallenge({
   const isMountedRef = useRef(true);
 
   // ============================================================
-  // PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (NEW)
+  // PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (PRESERVED)
   // ============================================================
   // Explicit game-phase ref: 'memorizing' | 'recalling'. Sequence
   // completion is tracked separately via sequenceCompleteRef/
@@ -345,6 +345,35 @@ function WellnessChallenge({
   // effect against running twice under React Strict Mode's dev-only
   // double-invoke of effects.
   const hasInitializedRef = useRef(false);
+
+  // ============================================================
+  // PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (NEW)
+  // ============================================================
+  // How many targets have been successfully recalled in the CURRENT
+  // round. Reset to 0 at the start of every new sequence (see
+  // startNewSequence below). Mirrors the existing scoreRef pattern:
+  // a ref for instantaneous, synchronous reads/writes inside
+  // handleTargetHit (so the check for "did we just finish the
+  // sequence with 5/5" is never stale), with a state mirror purely
+  // for the "Memory Recall: X / 5" UI.
+  const currentRecallCountRef = useRef(0);
+  const [currentRecallCount, setCurrentRecallCount] = useState(0);
+
+  // Cumulative recall performance across ALL completed sequences.
+  // These are NEVER reset by startNewSequence/startMemorization —
+  // only incremented, and only at the moment a sequence is fully
+  // completed (never during memorization, never on out-of-order or
+  // future-target hits, since handleTargetHit is structurally only
+  // ever invoked for the current active target during 'recalling').
+  const totalRecalledTargetsRef = useRef(0);
+  const totalTargetsAttemptedRef = useRef(0);
+  const completedSequenceCountRef = useRef(0);
+
+  const [completedSequenceCount, setCompletedSequenceCount] = useState(0);
+  const [totalRecalledTargets, setTotalRecalledTargets] = useState(0);
+  // null renders as "--" (no sequence completed yet); otherwise a
+  // rounded whole-number percentage.
+  const [memoryAccuracy, setMemoryAccuracy] = useState(null);
 
   // ============================================================
   // PHASE 1 — FINGERTIP TRACKING
@@ -572,7 +601,7 @@ function WellnessChallenge({
   }, []);
 
   // ============================================================
-  // PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (NEW)
+  // PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (PRESERVED)
   // ============================================================
   /**
    * Runs the memorization preview for the CURRENT targetSequenceRef
@@ -658,14 +687,17 @@ function WellnessChallenge({
 
   // ============================================================
   // PHASE 3 STEP 2 — AUTOMATIC SEQUENCE RESTART (PRESERVED +
-  // UPDATED FOR PHASE 3 STEP 3)
+  // UPDATED FOR PHASE 3 STEP 4)
   // ============================================================
   /**
    * Starts a brand-new round: generates a fresh 5-target sequence,
-   * resets progress/completion state, then enters the memorization
+   * resets progress/completion state, resets the CURRENT round's
+   * recall count (PHASE 3 STEP 4), then enters the memorization
    * preview (Phase 3 Step 3) before recall is enabled. Does NOT touch
-   * score/scoreRef — score is explicitly preserved across rounds per
-   * requirement #18/#19.
+   * score/scoreRef, nor the cumulative memory-performance totals
+   * (totalRecalledTargetsRef / totalTargetsAttemptedRef /
+   * completedSequenceCountRef) — those persist across rounds exactly
+   * like score does.
    */
   const startNewSequence = useCallback(() => {
     if (!isMountedRef.current) return;
@@ -686,7 +718,13 @@ function WellnessChallenge({
     setSequenceComplete(false);
     setSequencePosition(1);
 
-    // PHASE 3 STEP 3 (NEW) — every new sequence starts with a
+    // PHASE 3 STEP 4 (NEW) — reset the CURRENT round's recall count.
+    // Cumulative totals (completedSequenceCount, totalRecalledTargets,
+    // memoryAccuracy) are intentionally NOT touched here.
+    currentRecallCountRef.current = 0;
+    setCurrentRecallCount(0);
+
+    // PHASE 3 STEP 3 (PRESERVED) — every new sequence starts with a
     // memorization preview rather than going straight to recall.
     // startMemorization() itself sets gamePhaseRef back to
     // 'memorizing' and disables collision for the preview's duration.
@@ -725,6 +763,22 @@ function WellnessChallenge({
       }, 600);
 
     // ==========================================================
+    // PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (NEW)
+    // ==========================================================
+    // This handler is ONLY ever invoked from the animation loop's
+    // collision block, which is itself gated on
+    // `gamePhaseRef.current === 'recalling' && !sequenceCompleteRef.current`
+    // (see the animation effect below). That means every call here
+    // is structurally guaranteed to be a legitimate, in-order recall
+    // hit on the current active target — never a memorization-phase
+    // hit, never a future/inactive target, and never a duplicate hit
+    // on the same target (hitLockRef prevents that). So it's safe to
+    // unconditionally count this as one correctly recalled target.
+    const nextRecallCount = currentRecallCountRef.current + 1;
+    currentRecallCountRef.current = nextRecallCount;
+    setCurrentRecallCount(nextRecallCount);
+
+    // ==========================================================
     // PHASE 3 STEP 1 — MEMORY / ORDERED TARGET
     // ==========================================================
     // Advance to the next target in the fixed sequence. Only the
@@ -745,7 +799,33 @@ function WellnessChallenge({
       // Collision progression stops because the animation loop below
       // skips all collision checks once sequenceCompleteRef.current
       // is true — this is also what prevents target 5 from being
-      // counted twice during the transition window.
+      // counted twice during the transition window (and, per Phase
+      // 3 Step 4, prevents the completed-sequence metrics below from
+      // ever being committed more than once for the same round).
+
+      // ========================================================
+      // PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (NEW)
+      // ========================================================
+      // Commit this round's result to the cumulative memory
+      // performance metrics. nextRecallCount is guaranteed to be
+      // exactly MEMORY_SEQUENCE_LENGTH (5) here, since reaching this
+      // branch means every target in the sequence, in order, was
+      // just hit — no partial/failed completion path exists in the
+      // current game design (out-of-order or missed hits simply
+      // never advance the sequence at all).
+      completedSequenceCountRef.current += 1;
+      totalRecalledTargetsRef.current += nextRecallCount;
+      totalTargetsAttemptedRef.current += MEMORY_SEQUENCE_LENGTH;
+
+      const nextAccuracy = Math.round(
+        (totalRecalledTargetsRef.current /
+          totalTargetsAttemptedRef.current) *
+          100
+      );
+
+      setCompletedSequenceCount(completedSequenceCountRef.current);
+      setTotalRecalledTargets(totalRecalledTargetsRef.current);
+      setMemoryAccuracy(nextAccuracy);
 
       // ========================================================
       // PHASE 3 STEP 2 — AUTOMATIC SEQUENCE RESTART (PRESERVED)
@@ -756,8 +836,10 @@ function WellnessChallenge({
 
       sequenceRestartTimeoutRef.current = setTimeout(() => {
         sequenceRestartTimeoutRef.current = null;
-        // PHASE 3 STEP 3 (NEW) — this now also starts the next
-        // round's memorization preview (see startNewSequence above).
+        // PHASE 3 STEP 3 (PRESERVED) — this now also starts the next
+        // round's memorization preview (see startNewSequence above),
+        // and PHASE 3 STEP 4 resets currentRecallCount for the new
+        // round without touching the cumulative totals just written.
         startNewSequence();
       }, SEQUENCE_RESTART_DELAY_MS);
     } else {
@@ -796,7 +878,8 @@ function WellnessChallenge({
         timestamp;
 
       // ========================================================
-      // PHASE 3 STEP 3 — STATIC TARGET POSITION + VISIBILITY (NEW)
+      // PHASE 3 STEP 3 — STATIC TARGET POSITION + VISIBILITY
+      // (PRESERVED)
       // ========================================================
       // No velocity, no steering, no bouncing, no progressive speed
       // for either memorization or recall. Position/visibility source
@@ -867,7 +950,10 @@ function WellnessChallenge({
       // unchanged geometry/functions — gated to ONLY run during
       // active recall with an incomplete sequence, per requirements
       // #3/#27-29: no collision during memorization, no collision
-      // once the sequence is complete)
+      // once the sequence is complete. This same gate is what makes
+      // every call to handleTargetHit — and therefore every Phase 3
+      // Step 4 recall-count increment — structurally guaranteed to
+      // be a legitimate recall hit.)
       // ========================================================
 
       if (
@@ -974,10 +1060,10 @@ function WellnessChallenge({
         sequenceRestartTimeoutRef.current = null;
       }
 
-      // PHASE 3 STEP 3 (NEW) — clear any pending preview-step timer
-      // on unmount, per requirement #48, so a scheduled preview step
-      // can never fire and touch refs/state after the component is
-      // gone.
+      // PHASE 3 STEP 3 (PRESERVED) — clear any pending preview-step
+      // timer on unmount, per requirement #48, so a scheduled preview
+      // step can never fire and touch refs/state after the component
+      // is gone.
       if (previewTimeoutRef.current !== null) {
         clearTimeout(previewTimeoutRef.current);
         previewTimeoutRef.current = null;
@@ -1011,7 +1097,7 @@ function WellnessChallenge({
         )
       : null;
 
-  // PHASE 3 STEP 3 (NEW) — status text now accounts for the
+  // PHASE 3 STEP 3 (PRESERVED) — status text accounts for the
   // memorization phase, ahead of the existing hit/idle branches.
   // Camera and hand-tracking status branches above it are unchanged;
   // sequence-complete still takes precedence over everything else
@@ -1030,6 +1116,15 @@ function WellnessChallenge({
       : targetHit
       ? 'Target hit! Find the next target.'
       : 'Recall the sequence.';
+
+  // PHASE 3 STEP 4 (NEW) — display-only derived text for memory
+  // accuracy; the underlying `memoryAccuracy` state stays a number
+  // (or null) so the calculation itself never depends on string
+  // formatting.
+  const memoryAccuracyLabel =
+    memoryAccuracy === null
+      ? '--'
+      : `${memoryAccuracy}%`;
 
   // ============================================================
   // OVERLAY
@@ -1177,6 +1272,31 @@ function WellnessChallenge({
           : isMemorizing
           ? `Memorize: ${MEMORY_SEQUENCE_LENGTH} targets`
           : `Sequence: ${sequencePosition} / ${MEMORY_SEQUENCE_LENGTH}`}
+      </div>
+
+      {/* ==============================================
+          PHASE 3 STEP 4 — RECALL PERFORMANCE / MEMORY SCORE (NEW)
+          Display-only metrics; do not affect gameplay.
+          ============================================== */}
+      <div
+        className="wellness-challenge__memory-accuracy"
+        aria-label="Memory accuracy"
+      >
+        Memory Accuracy: {memoryAccuracyLabel}
+      </div>
+
+      <div
+        className="wellness-challenge__memory-recall"
+        aria-label="Current round memory recall"
+      >
+        Memory Recall: {currentRecallCount} / {MEMORY_SEQUENCE_LENGTH}
+      </div>
+
+      <div
+        className="wellness-challenge__sequences-completed"
+        aria-label="Sequences completed"
+      >
+        Sequences Completed: {completedSequenceCount}
       </div>
 
       <p
