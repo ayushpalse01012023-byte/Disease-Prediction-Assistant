@@ -255,13 +255,16 @@ function generateTargetSequence(length) {
 const SEQUENCE_RESTART_DELAY_MS = 1200;
 
 // ============================================================
-// PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (PRESERVED)
+// PHASE 3 STEP 3 — MEMORY RECALL / PREVIEW (PRESERVED, TIMING
+// TUNED PER USER REQUEST)
 // ============================================================
 // How long each target is shown during the memorization preview, and
-// how long the gap between consecutive previewed targets is. Named
-// constants per requirement #41 so they're easy to tune later.
-const PREVIEW_DURATION_MS = 700;
-const PREVIEW_GAP_MS = 200;
+// how long the gap between consecutive previewed targets is.
+// Increased from 700/200 to 1200/500 so each target is clearly
+// memorizable and the preview no longer feels rushed against the
+// 1.2s "Sequence Complete!" pause.
+const PREVIEW_DURATION_MS = 1200;
+const PREVIEW_GAP_MS = 500;
 
 function WellnessChallenge({
   videoRef,
@@ -893,7 +896,7 @@ function WellnessChallenge({
 
       // ========================================================
       // PHASE 3 STEP 3 — STATIC TARGET POSITION + VISIBILITY
-      // (PRESERVED)
+      // (PRESERVED, WITH BUGFIX BELOW)
       // ========================================================
       // No velocity, no steering, no bouncing, no progressive speed
       // for either memorization or recall. Position/visibility source
@@ -903,9 +906,16 @@ function WellnessChallenge({
       //     (requirement #30-32) — no collision, no score changes.
       //   - 'recalling' (sequence not yet complete): show the active
       //     sequence target, exactly as Phase 3 Step 1 behaved.
-      //   - sequence complete: leave the target exactly where it was
-      //     (the 5th/final target), visible, per Step 2 behavior,
-      //     until startNewSequence()/startMemorization() take over.
+      //   - sequence complete: BUGFIX — the target is now HIDDEN
+      //     during the "Sequence Complete!" pause, instead of staying
+      //     visible at the 5th target's position. Previously
+      //     targetVisible stayed `true` here, so the completed target
+      //     lingered on screen for the entire
+      //     SEQUENCE_RESTART_DELAY_MS pause, which read as if the
+      //     transition were overlapping/rushed. Now: 5th hit → target
+      //     disappears immediately → "Sequence Complete!" shows with
+      //     no target on screen → after the delay, startNewSequence()
+      //     /startMemorization() begin the next round's preview.
       let targetVisible = true;
 
       if (gamePhaseRef.current === 'memorizing') {
@@ -919,13 +929,15 @@ function WellnessChallenge({
           ];
         targetVisible = true;
       } else {
-        targetVisible = true;
+        // BUGFIX: hide the target during the sequence-complete pause.
+        targetVisible = false;
       }
 
       // ========================================================
       // TARGET DOM POSITION (existing mechanism, now also toggling
       // visibility for the memorization preview's "appear/disappear"
-      // behavior — requirement #41)
+      // behavior — requirement #41 — and for the sequence-complete
+      // pause per the bugfix above)
       // ========================================================
 
       const transform =
