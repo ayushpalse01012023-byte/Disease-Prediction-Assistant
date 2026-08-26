@@ -1,27 +1,66 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+} from 'react';
 import { createPortal } from 'react-dom';
 
+// ============================================================
+// CORE CONSTANTS
+// ============================================================
+
 const TARGET_MARGIN = 0.12;
+
 const TARGET_RADIUS_PX = 28;
+
 const FINGER_RADIUS_PX = 10;
+
 const HIT_TOLERANCE_PX = 14;
 
-// Phase 1 — fingertip cursor smoothing.
+// ============================================================
+// PHASE 1 — FINGERTIP CURSOR SMOOTHING
 // KEEP FROZEN.
+// ============================================================
+
 const CURSOR_SMOOTHING_FACTOR = 0.55;
 
 // ============================================================
-// PHASE 2 STEP 2 — PROGRESSIVE DIFFICULTY
-// PRESERVED FOR FUTURE PHASE 2 USE
+// PHASE 4 — TIMED SPEED CHALLENGE
 // ============================================================
 
+const CHALLENGE_DURATION_MS = 30000;
+
+const ROUND_RESTART_DELAY_MS = 3000;
+
+// Maximum amount of time a target remains active
+// before it becomes a miss.
+const TARGET_LIFETIME_MS = 2200;
+
+// Initial movement speed.
 const BASE_TARGET_SPEED = 0.05;
+
+// Maximum movement speed.
 const MAX_TARGET_SPEED = 0.22;
+
+// Score at which maximum speed is reached.
 const SPEED_RAMP_SCORE = 25;
+
+// Movement steering responsiveness.
+const STEERING_RATE = 6;
+
+// Prevent unusually large frame jumps.
+const MAX_DT_SECONDS = 0.1;
+
+// ============================================================
+// PHASE 4 — TARGET SPEED
+// ============================================================
 
 function getTargetSpeed(score) {
   const safeScore =
-    Number.isFinite(score) && score > 0 ? score : 0;
+    Number.isFinite(score) && score > 0
+      ? score
+      : 0;
 
   const progress = Math.min(
     safeScore / SPEED_RAMP_SCORE,
@@ -30,38 +69,34 @@ function getTargetSpeed(score) {
 
   return (
     BASE_TARGET_SPEED +
-    (MAX_TARGET_SPEED - BASE_TARGET_SPEED) * progress
+    (MAX_TARGET_SPEED - BASE_TARGET_SPEED) *
+      progress
   );
 }
 
+// ============================================================
+// PHASE 4 — DIFFICULTY LABEL
+// ============================================================
+
 function getDifficultyLabel(score) {
   const safeScore =
-    Number.isFinite(score) && score > 0 ? score : 0;
+    Number.isFinite(score) && score > 0
+      ? score
+      : 0;
 
-  if (safeScore >= 20) return 'Expert';
-  if (safeScore >= 10) return 'Hard';
-  if (safeScore >= 5) return 'Medium';
+  if (safeScore >= 20) {
+    return 'Expert';
+  }
+
+  if (safeScore >= 10) {
+    return 'Hard';
+  }
+
+  if (safeScore >= 5) {
+    return 'Medium';
+  }
 
   return 'Easy';
-}
-
-// ============================================================
-// PHASE 2 STEP 3 — DYNAMIC MOVEMENT PATTERN
-// PRESERVED FOR FUTURE PHASE 2 USE
-// ============================================================
-
-const STEERING_RATE = 6;
-const MAX_DT_SECONDS = 0.1;
-
-function getDirectionChangeInterval(score) {
-  const safeScore =
-    Number.isFinite(score) && score > 0 ? score : 0;
-
-  if (safeScore >= 20) return 0.6;
-  if (safeScore >= 10) return 1.2;
-  if (safeScore >= 5) return 2.5;
-
-  return Infinity;
 }
 
 // ============================================================
@@ -69,10 +104,14 @@ function getDirectionChangeInterval(score) {
 // ============================================================
 
 function computeVideoDisplayTransform(videoEl) {
-  const boxRect = videoEl.getBoundingClientRect();
+  const boxRect =
+    videoEl.getBoundingClientRect();
 
-  const naturalWidth = videoEl.videoWidth;
-  const naturalHeight = videoEl.videoHeight;
+  const naturalWidth =
+    videoEl.videoWidth;
+
+  const naturalHeight =
+    videoEl.videoHeight;
 
   const base = {
     top: boxRect.top,
@@ -108,14 +147,18 @@ function computeVideoDisplayTransform(videoEl) {
 
   try {
     const computedTransform =
-      window.getComputedStyle(videoEl).transform;
+      window.getComputedStyle(
+        videoEl
+      ).transform;
 
     if (
       computedTransform &&
       computedTransform !== 'none'
     ) {
       const matrix =
-        new DOMMatrixReadOnly(computedTransform);
+        new DOMMatrixReadOnly(
+          computedTransform
+        );
 
       mirrored = matrix.a < 0;
     }
@@ -127,8 +170,9 @@ function computeVideoDisplayTransform(videoEl) {
 
   try {
     objectFit =
-      window.getComputedStyle(videoEl).objectFit ||
-      'fill';
+      window.getComputedStyle(
+        videoEl
+      ).objectFit || 'fill';
   } catch {
     objectFit = 'fill';
   }
@@ -157,7 +201,9 @@ function computeVideoDisplayTransform(videoEl) {
       (boxRect.height -
         naturalHeight * scale) /
       2;
-  } else if (objectFit === 'contain') {
+  } else if (
+    objectFit === 'contain'
+  ) {
     const scale = Math.min(
       boxRect.width / naturalWidth,
       boxRect.height / naturalHeight
@@ -175,21 +221,29 @@ function computeVideoDisplayTransform(videoEl) {
       (boxRect.height -
         naturalHeight * scale) /
       2;
-  } else if (objectFit === 'none') {
+  } else if (
+    objectFit === 'none'
+  ) {
     scaleX = 1;
     scaleY = 1;
 
     offsetX =
-      (boxRect.width - naturalWidth) / 2;
+      (boxRect.width -
+        naturalWidth) /
+      2;
 
     offsetY =
-      (boxRect.height - naturalHeight) / 2;
+      (boxRect.height -
+        naturalHeight) /
+      2;
   } else {
     scaleX =
-      boxRect.width / naturalWidth;
+      boxRect.width /
+      naturalWidth;
 
     scaleY =
-      boxRect.height / naturalHeight;
+      boxRect.height /
+      naturalHeight;
   }
 
   return {
@@ -201,6 +255,10 @@ function computeVideoDisplayTransform(videoEl) {
     mirrored,
   };
 }
+
+// ============================================================
+// NORMALIZED → OVERLAY COORDINATES
+// ============================================================
 
 function normalizedToOverlayCoords(
   point,
@@ -216,24 +274,29 @@ function normalizedToOverlayCoords(
     1
   );
 
-  const effectiveX = transform.mirrored
-    ? 1 - clampedX
-    : clampedX;
+  const effectiveX =
+    transform.mirrored
+      ? 1 - clampedX
+      : clampedX;
 
   const naturalX =
-    effectiveX * transform.naturalWidth;
+    effectiveX *
+    transform.naturalWidth;
 
   const naturalY =
-    clampedY * transform.naturalHeight;
+    clampedY *
+    transform.naturalHeight;
 
   return {
     x:
       transform.offsetX +
-      naturalX * transform.scaleX,
+      naturalX *
+        transform.scaleX,
 
     y:
       transform.offsetY +
-      naturalY * transform.scaleY,
+      naturalY *
+        transform.scaleY,
   };
 }
 
@@ -257,16 +320,25 @@ function generateRandomTarget() {
 }
 
 // ============================================================
-// PHASE 2 — PRESERVED MOVEMENT HELPER
+// PHASE 4 — MOVING TARGET VELOCITY
 // ============================================================
 
-function generateRandomVelocity(speed) {
+function generateRandomVelocity(
+  speed
+) {
   const angle =
-    Math.random() * Math.PI * 2;
+    Math.random() *
+    Math.PI *
+    2;
 
   return {
-    x: Math.cos(angle) * speed,
-    y: Math.sin(angle) * speed,
+    x:
+      Math.cos(angle) *
+      speed,
+
+    y:
+      Math.sin(angle) *
+      speed,
   };
 }
 
@@ -281,41 +353,22 @@ function isCollision(
   tolerancePx
 ) {
   const dx =
-    fingerPx.x - targetPx.x;
+    fingerPx.x -
+    targetPx.x;
 
   const dy =
-    fingerPx.y - targetPx.y;
+    fingerPx.y -
+    targetPx.y;
 
   return (
     Math.sqrt(
-      dx * dx + dy * dy
+      dx * dx +
+        dy * dy
     ) <=
-    radiusPx + tolerancePx
+    radiusPx +
+      tolerancePx
   );
 }
-
-// ============================================================
-// PHASE 3 — MEMORY / ORDERED TARGET
-// ============================================================
-
-const MEMORY_SEQUENCE_LENGTH = 5;
-
-function generateTargetSequence(length) {
-  return Array.from(
-    { length },
-    () => generateRandomTarget()
-  );
-}
-
-// ============================================================
-// PHASE 3 TIMING
-// ============================================================
-
-const SEQUENCE_RESTART_DELAY_MS = 2000;
-
-const PREVIEW_DURATION_MS = 1800;
-
-const PREVIEW_GAP_MS = 800;
 
 // ============================================================
 // COMPONENT
@@ -330,27 +383,130 @@ function WellnessChallenge({
   // VIDEO TRANSFORM STATE
   // ==========================================================
 
-  const [displayTransform, setDisplayTransform] =
-    useState(null);
+  const [
+    displayTransform,
+    setDisplayTransform,
+  ] = useState(null);
 
   // ==========================================================
   // SCORE
   // ==========================================================
 
-  const [score, setScore] = useState(0);
+  const [
+    score,
+    setScore,
+  ] = useState(0);
 
-  const [targetHit, setTargetHit] =
-    useState(false);
+  const scoreRef =
+    useRef(0);
+
+  // ==========================================================
+  // HIT / MISS
+  // ==========================================================
+
+  const [
+    hits,
+    setHits,
+  ] = useState(0);
+
+  const [
+    misses,
+    setMisses,
+  ] = useState(0);
+
+  const hitsRef =
+    useRef(0);
+
+  const missesRef =
+    useRef(0);
+
+  // ==========================================================
+  // ACCURACY
+  // ==========================================================
+
+  const [
+    accuracy,
+    setAccuracy,
+  ] = useState(0);
+
+  // ==========================================================
+  // REACTION TIME
+  // ==========================================================
+
+  const [
+    lastReactionTime,
+    setLastReactionTime,
+  ] = useState(null);
+
+  const [
+    averageReactionTime,
+    setAverageReactionTime,
+  ] = useState(null);
+
+  const reactionTimesRef =
+    useRef([]);
+
+  // ==========================================================
+  // TARGET HIT FEEDBACK
+  // ==========================================================
+
+  const [
+    targetHit,
+    setTargetHit,
+  ] = useState(false);
+
+  const targetHitTimeoutRef =
+    useRef(null);
+
+  // ==========================================================
+  // DIFFICULTY
+  // ==========================================================
 
   const [
     difficultyLabel,
     setDifficultyLabel,
-  ] = useState(() =>
-    getDifficultyLabel(0)
+  ] = useState(
+    () => getDifficultyLabel(0)
   );
 
   // ==========================================================
-  // FINGER STATE
+  // TIMER
+  // ==========================================================
+
+  const [
+    timeRemaining,
+    setTimeRemaining,
+  ] = useState(
+    CHALLENGE_DURATION_MS
+  );
+
+  const challengeStartTimeRef =
+    useRef(null);
+
+  const challengeEndTimeRef =
+    useRef(null);
+
+  const timerRafRef =
+    useRef(null);
+
+  // ==========================================================
+  // GAME PHASE
+  // ==========================================================
+
+  const gamePhaseRef =
+    useRef('waiting');
+
+  const [
+    gamePhase,
+    setGamePhase,
+  ] = useState('waiting');
+
+  // waiting
+  // running
+  // complete
+
+  // ==========================================================
+  // FINGERTIP STATE
   // ==========================================================
 
   const [
@@ -362,103 +518,6 @@ function WellnessChallenge({
     hasDetectedFinger,
     setHasDetectedFinger,
   ] = useState(false);
-
-  // ==========================================================
-  // PHASE 3 — TARGET SEQUENCE
-  // ==========================================================
-
-  const targetSequenceRef = useRef(
-    generateTargetSequence(
-      MEMORY_SEQUENCE_LENGTH
-    )
-  );
-
-  const activeTargetIndexRef =
-    useRef(0);
-
-  const sequenceCompleteRef =
-    useRef(false);
-
-  const [
-    sequencePosition,
-    setSequencePosition,
-  ] = useState(1);
-
-  const [
-    sequenceComplete,
-    setSequenceComplete,
-  ] = useState(false);
-
-  // ==========================================================
-  // PHASE 3 — GAME PHASE
-  // ==========================================================
-
-  const gamePhaseRef =
-    useRef('memorizing');
-
-  const [
-    isMemorizing,
-    setIsMemorizing,
-  ] = useState(true);
-
-  // ==========================================================
-  // PHASE 3 — PREVIEW
-  // ==========================================================
-
-  const previewIndexRef =
-    useRef(0);
-
-  const previewVisibleRef =
-    useRef(false);
-
-  const previewTimeoutRef =
-    useRef(null);
-
-  // ==========================================================
-  // PHASE 3 — ROUND GENERATION
-  //
-  // Every new sequence receives a new generation number.
-  // Old timeout callbacks become invalid automatically.
-  // ==========================================================
-
-  const sequenceGenerationRef =
-    useRef(0);
-
-  // ==========================================================
-  // PHASE 3 — RECALL PERFORMANCE
-  // ==========================================================
-
-  const currentRecallCountRef =
-    useRef(0);
-
-  const [
-    currentRecallCount,
-    setCurrentRecallCount,
-  ] = useState(0);
-
-  const totalRecalledTargetsRef =
-    useRef(0);
-
-  const totalTargetsAttemptedRef =
-    useRef(0);
-
-  const completedSequenceCountRef =
-    useRef(0);
-
-  const [
-    completedSequenceCount,
-    setCompletedSequenceCount,
-  ] = useState(0);
-
-  const [
-    totalRecalledTargets,
-    setTotalRecalledTargets,
-  ] = useState(0);
-
-  const [
-    memoryAccuracy,
-    setMemoryAccuracy,
-  ] = useState(null);
 
   // ==========================================================
   // PHASE 1 — FINGERTIP TRACKING
@@ -478,22 +537,18 @@ function WellnessChallenge({
     useRef(null);
 
   // ==========================================================
-  // PHASE 2 — MOVING TARGET
-  // PRESERVED FOR FUTURE PHASE 2
-  //
-  // IMPORTANT:
-  // These are NOT used by Phase 3.
+  // PHASE 4 — MOVING TARGET
   // ==========================================================
 
   const targetPosRef =
     useRef(
-      targetSequenceRef.current[0]
+      generateRandomTarget()
     );
 
   const targetVelRef =
     useRef(
       generateRandomVelocity(
-        getTargetSpeed(0)
+        BASE_TARGET_SPEED
       )
     );
 
@@ -503,24 +558,15 @@ function WellnessChallenge({
   const targetAnimRafRef =
     useRef(null);
 
-  const targetLastFrameTimeRef =
+  const targetSpawnTimeRef =
     useRef(null);
 
-  const targetDirectionChangeRef =
-    useRef(null);
-
-  const targetDirectionIntervalRef =
-    useRef(null);
-
-  const targetDesiredVelRef =
-    useRef(null);
+  const targetActiveRef =
+    useRef(false);
 
   // ==========================================================
   // SHARED REFS
   // ==========================================================
-
-  const hitLockRef =
-    useRef(false);
 
   const rafIdRef =
     useRef(null);
@@ -528,17 +574,14 @@ function WellnessChallenge({
   const lastTransformRef =
     useRef(null);
 
-  const targetHitTimeoutRef =
-    useRef(null);
-
-  const sequenceRestartTimeoutRef =
-    useRef(null);
-
-  const scoreRef =
-    useRef(0);
-
   const isMountedRef =
     useRef(true);
+
+  const hitLockRef =
+    useRef(false);
+
+  const restartTimeoutRef =
+    useRef(null);
 
   // ==========================================================
   // VIDEO TRANSFORM COMPARISON
@@ -571,7 +614,9 @@ function WellnessChallenge({
 
   useEffect(() => {
     const poll = () => {
-      if (!isMountedRef.current) {
+      if (
+        !isMountedRef.current
+      ) {
         return;
       }
 
@@ -600,21 +645,27 @@ function WellnessChallenge({
       }
 
       rafIdRef.current =
-        requestAnimationFrame(poll);
+        requestAnimationFrame(
+          poll
+        );
     };
 
     rafIdRef.current =
-      requestAnimationFrame(poll);
+      requestAnimationFrame(
+        poll
+      );
 
     return () => {
       if (
-        rafIdRef.current !== null
+        rafIdRef.current !==
+        null
       ) {
         cancelAnimationFrame(
           rafIdRef.current
         );
 
-        rafIdRef.current = null;
+        rafIdRef.current =
+          null;
       }
     };
   }, [videoRef]);
@@ -626,7 +677,8 @@ function WellnessChallenge({
 
   useEffect(() => {
     const rawTip =
-      indexFingerTips?.[0] || null;
+      indexFingerTips?.[0] ||
+      null;
 
     if (rawTip) {
       setLastKnownFingerTip(
@@ -636,7 +688,9 @@ function WellnessChallenge({
       fingerTipRawRef.current =
         rawTip;
 
-      if (!hasDetectedFinger) {
+      if (
+        !hasDetectedFinger
+      ) {
         setHasDetectedFinger(
           true
         );
@@ -678,35 +732,46 @@ function WellnessChallenge({
         if (
           !smoothedFingerPxRef.current
         ) {
-          smoothedFingerPxRef.current = {
-            x: rawPx.x,
-            y: rawPx.y,
-          };
+          smoothedFingerPxRef.current =
+            {
+              x: rawPx.x,
+              y: rawPx.y,
+            };
         } else {
-          smoothedFingerPxRef.current = {
-            x:
-              smoothedFingerPxRef.current.x +
-              (
-                rawPx.x -
-                smoothedFingerPxRef.current.x
-              ) *
-                CURSOR_SMOOTHING_FACTOR,
+          smoothedFingerPxRef.current =
+            {
+              x:
+                smoothedFingerPxRef
+                  .current
+                  .x +
+                (
+                  rawPx.x -
+                  smoothedFingerPxRef
+                    .current
+                    .x
+                ) *
+                  CURSOR_SMOOTHING_FACTOR,
 
-            y:
-              smoothedFingerPxRef.current.y +
-              (
-                rawPx.y -
-                smoothedFingerPxRef.current.y
-              ) *
-                CURSOR_SMOOTHING_FACTOR,
-          };
+              y:
+                smoothedFingerPxRef
+                  .current
+                  .y +
+                (
+                  rawPx.y -
+                  smoothedFingerPxRef
+                    .current
+                    .y
+                ) *
+                  CURSOR_SMOOTHING_FACTOR,
+            };
         }
 
         const {
           x,
           y,
         } =
-          smoothedFingerPxRef.current;
+          smoothedFingerPxRef
+            .current;
 
         node.style.transform =
           `translate(${x}px, ${y}px) ` +
@@ -726,14 +791,30 @@ function WellnessChallenge({
 
     return () => {
       if (
-        cursorRafRef.current !== null
+        cursorRafRef.current !==
+        null
       ) {
         cancelAnimationFrame(
           cursorRafRef.current
         );
 
-        cursorRafRef.current = null;
+        cursorRafRef.current =
+          null;
       }
+    };
+  }, []);
+
+  // ==========================================================
+  // MOUNT STATE
+  // ==========================================================
+
+  useEffect(() => {
+    isMountedRef.current =
+      true;
+
+    return () => {
+      isMountedRef.current =
+        false;
     };
   }, []);
 
@@ -748,323 +829,469 @@ function WellnessChallenge({
   }, [score]);
 
   // ==========================================================
-  // MOUNT STATE
+  // UPDATE ACCURACY
   // ==========================================================
 
-  useEffect(() => {
-    isMountedRef.current = true;
+  const updateAccuracy =
+    useCallback(
+      (
+        nextHits,
+        nextMisses
+      ) => {
+        const total =
+          nextHits +
+          nextMisses;
 
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
+        const nextAccuracy =
+          total > 0
+            ? Math.round(
+                (nextHits /
+                  total) *
+                  100
+              )
+            : 0;
+
+        setAccuracy(
+          nextAccuracy
+        );
+      },
+      []
+    );
 
   // ==========================================================
-  // PHASE 3 — START MEMORIZATION
+  // UPDATE REACTION STATISTICS
   // ==========================================================
 
-  const startMemorization =
-    useCallback(() => {
-      if (!isMountedRef.current) {
-        return;
-      }
-
-      // ------------------------------------------------------
-      // Cancel any old preview timer.
-      // ------------------------------------------------------
-
-      if (
-        previewTimeoutRef.current !==
-        null
-      ) {
-        clearTimeout(
-          previewTimeoutRef.current
+  const recordReactionTime =
+    useCallback(
+      (reactionMs) => {
+        reactionTimesRef.current.push(
+          reactionMs
         );
 
-        previewTimeoutRef.current =
-          null;
-      }
+        const times =
+          reactionTimesRef.current;
 
-      // ------------------------------------------------------
-      // Every memorization start gets
-      // a fresh generation.
-      // ------------------------------------------------------
+        const total =
+          times.reduce(
+            (
+              sum,
+              value
+            ) =>
+              sum + value,
+            0
+          );
 
-      const generation =
-        ++sequenceGenerationRef.current;
+        const average =
+          total / times.length;
 
-      // ------------------------------------------------------
-      // Explicit clean reset.
-      // ------------------------------------------------------
+        setLastReactionTime(
+          Math.round(
+            reactionMs
+          )
+        );
 
-      previewIndexRef.current = 0;
+        setAverageReactionTime(
+          Math.round(
+            average
+          )
+        );
+      },
+      []
+    );
 
-      previewVisibleRef.current =
-        false;
+  // ==========================================================
+  // START TARGET
+  // ==========================================================
 
-      activeTargetIndexRef.current =
-        0;
-
-      sequenceCompleteRef.current =
-        false;
-
-      hitLockRef.current = false;
-
-      currentRecallCountRef.current =
-        0;
-
-      targetPosRef.current =
-        targetSequenceRef.current[0];
-
-      gamePhaseRef.current =
-        'memorizing';
-
-      setIsMemorizing(true);
-
-      setSequenceComplete(false);
-
-      setSequencePosition(1);
-
-      setCurrentRecallCount(0);
-
-      // ------------------------------------------------------
-      // Preview chain.
-      // ------------------------------------------------------
-
-      const runPreviewStep = (
-        index
-      ) => {
+  const spawnTarget =
+    useCallback(
+      (currentScore) => {
         if (
           !isMountedRef.current
         ) {
           return;
         }
 
-        // Old sequence callback?
-        if (
-          generation !==
-          sequenceGenerationRef.current
-        ) {
-          return;
-        }
-
-        // ----------------------------------------------------
-        // Preview finished.
-        // ----------------------------------------------------
-
-        if (
-          index >=
-          MEMORY_SEQUENCE_LENGTH
-        ) {
-          previewIndexRef.current =
-            0;
-
-          previewVisibleRef.current =
-            false;
-
-          activeTargetIndexRef.current =
-            0;
-
-          targetPosRef.current =
-            targetSequenceRef.current[0];
-
-          sequenceCompleteRef.current =
-            false;
-
-          hitLockRef.current =
-            false;
-
-          gamePhaseRef.current =
-            'recalling';
-
-          setIsMemorizing(false);
-
-          setSequencePosition(1);
-
-          previewTimeoutRef.current =
-            null;
-
-          return;
-        }
-
-        // ----------------------------------------------------
-        // Show current preview target.
-        // ----------------------------------------------------
-
-        previewIndexRef.current =
-          index;
-
-        previewVisibleRef.current =
-          true;
+        const speed =
+          getTargetSpeed(
+            currentScore
+          );
 
         targetPosRef.current =
-          targetSequenceRef.current[
-            index
-          ];
+          generateRandomTarget();
 
-        // ----------------------------------------------------
-        // Keep it visible for 1800ms.
-        // ----------------------------------------------------
+        targetVelRef.current =
+          generateRandomVelocity(
+            speed
+          );
 
-        previewTimeoutRef.current =
-          setTimeout(() => {
-            if (
-              !isMountedRef.current
-            ) {
-              return;
-            }
+        targetSpawnTimeRef.current =
+          performance.now();
 
-            if (
-              generation !==
-              sequenceGenerationRef.current
-            ) {
-              return;
-            }
+        targetActiveRef.current =
+          true;
 
-            // Hide current target.
-            previewVisibleRef.current =
-              false;
-
-            // ------------------------------------------------
-            // Wait 800ms before next target.
-            // ------------------------------------------------
-
-            previewTimeoutRef.current =
-              setTimeout(() => {
-                if (
-                  !isMountedRef.current
-                ) {
-                  return;
-                }
-
-                if (
-                  generation !==
-                  sequenceGenerationRef.current
-                ) {
-                  return;
-                }
-
-                runPreviewStep(
-                  index + 1
-                );
-              }, PREVIEW_GAP_MS);
-          }, PREVIEW_DURATION_MS);
-      };
-
-      runPreviewStep(0);
-    }, []);
+        hitLockRef.current =
+          false;
+      },
+      []
+    );
 
   // ==========================================================
-  // INITIAL MEMORIZATION
+  // COMPLETE CHALLENGE
   // ==========================================================
 
-  useEffect(() => {
-    startMemorization();
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ==========================================================
-  // START NEW SEQUENCE
-  // ==========================================================
-
-  const startNewSequence =
+  const completeChallenge =
     useCallback(() => {
-      if (!isMountedRef.current) {
+      if (
+        !isMountedRef.current
+      ) {
         return;
       }
 
+      if (
+        gamePhaseRef.current !==
+        'running'
+      ) {
+        return;
+      }
+
+      gamePhaseRef.current =
+        'complete';
+
+      setGamePhase(
+        'complete'
+      );
+
+      targetActiveRef.current =
+        false;
+
+      hitLockRef.current =
+        true;
+
+      setTimeRemaining(0);
+
       // ------------------------------------------------------
-      // Cancel old restart timer.
+      // Cancel timer loop.
       // ------------------------------------------------------
 
       if (
-        sequenceRestartTimeoutRef.current !==
+        timerRafRef.current !==
         null
       ) {
-        clearTimeout(
-          sequenceRestartTimeoutRef.current
+        cancelAnimationFrame(
+          timerRafRef.current
         );
 
-        sequenceRestartTimeoutRef.current =
+        timerRafRef.current =
           null;
       }
 
       // ------------------------------------------------------
-      // Generate completely new sequence.
+      // Schedule next challenge.
       // ------------------------------------------------------
 
-      targetSequenceRef.current =
-        generateTargetSequence(
-          MEMORY_SEQUENCE_LENGTH
+      if (
+        restartTimeoutRef.current !==
+        null
+      ) {
+        clearTimeout(
+          restartTimeoutRef.current
+        );
+      }
+
+      restartTimeoutRef.current =
+        setTimeout(() => {
+          if (
+            !isMountedRef.current
+          ) {
+            return;
+          }
+
+          restartTimeoutRef.current =
+            null;
+
+          startChallenge();
+        }, ROUND_RESTART_DELAY_MS);
+    }, []);
+
+  // ==========================================================
+  // TIMER LOOP
+  // ==========================================================
+
+  const runChallengeTimer =
+    useCallback(() => {
+      const updateTimer =
+        () => {
+          if (
+            !isMountedRef.current
+          ) {
+            return;
+          }
+
+          if (
+            gamePhaseRef.current !==
+            'running'
+          ) {
+            return;
+          }
+
+          const now =
+            performance.now();
+
+          const remaining =
+            Math.max(
+              0,
+              challengeEndTimeRef
+                .current - now
+            );
+
+          setTimeRemaining(
+            remaining
+          );
+
+          if (
+            remaining <= 0
+          ) {
+            completeChallenge();
+            return;
+          }
+
+          timerRafRef.current =
+            requestAnimationFrame(
+              updateTimer
+            );
+        };
+
+      timerRafRef.current =
+        requestAnimationFrame(
+          updateTimer
+        );
+    }, [completeChallenge]);
+
+  // ==========================================================
+  // START CHALLENGE
+  // ==========================================================
+
+  const startChallenge =
+    useCallback(() => {
+      if (
+        !isMountedRef.current
+      ) {
+        return;
+      }
+
+      // ------------------------------------------------------
+      // Cancel previous restart timer.
+      // ------------------------------------------------------
+
+      if (
+        restartTimeoutRef.current !==
+        null
+      ) {
+        clearTimeout(
+          restartTimeoutRef.current
         );
 
+        restartTimeoutRef.current =
+          null;
+      }
+
       // ------------------------------------------------------
-      // Reset target state.
+      // Cancel previous timer RAF.
       // ------------------------------------------------------
 
-      activeTargetIndexRef.current =
-        0;
+      if (
+        timerRafRef.current !==
+        null
+      ) {
+        cancelAnimationFrame(
+          timerRafRef.current
+        );
 
-      targetPosRef.current =
-        targetSequenceRef.current[0];
+        timerRafRef.current =
+          null;
+      }
 
-      sequenceCompleteRef.current =
+      // ------------------------------------------------------
+      // Reset metrics.
+      // ------------------------------------------------------
+
+      scoreRef.current = 0;
+
+      hitsRef.current = 0;
+
+      missesRef.current = 0;
+
+      reactionTimesRef.current =
+        [];
+
+      setScore(0);
+
+      setHits(0);
+
+      setMisses(0);
+
+      setAccuracy(0);
+
+      setLastReactionTime(
+        null
+      );
+
+      setAverageReactionTime(
+        null
+      );
+
+      setDifficultyLabel(
+        getDifficultyLabel(0)
+      );
+
+      setTargetHit(false);
+
+      // ------------------------------------------------------
+      // Reset timer.
+      // ------------------------------------------------------
+
+      const now =
+        performance.now();
+
+      challengeStartTimeRef.current =
+        now;
+
+      challengeEndTimeRef.current =
+        now +
+        CHALLENGE_DURATION_MS;
+
+      setTimeRemaining(
+        CHALLENGE_DURATION_MS
+      );
+
+      // ------------------------------------------------------
+      // Reset game state.
+      // ------------------------------------------------------
+
+      gamePhaseRef.current =
+        'running';
+
+      setGamePhase(
+        'running'
+      );
+
+      targetActiveRef.current =
         false;
 
       hitLockRef.current =
         false;
 
       // ------------------------------------------------------
-      // Reset UI state.
+      // Spawn first target.
       // ------------------------------------------------------
 
-      setSequenceComplete(false);
-
-      setSequencePosition(1);
-
-      currentRecallCountRef.current =
-        0;
-
-      setCurrentRecallCount(0);
+      spawnTarget(0);
 
       // ------------------------------------------------------
-      // Start fresh memorization.
+      // Start timer.
       // ------------------------------------------------------
 
-      startMemorization();
-    }, [startMemorization]);
+      runChallengeTimer();
+    }, [
+      runChallengeTimer,
+      spawnTarget,
+    ]);
 
   // ==========================================================
-  // TARGET HIT HANDLER
+  // INITIAL START
+  // ==========================================================
+
+  useEffect(() => {
+    const timeout =
+      setTimeout(() => {
+        startChallenge();
+      }, 500);
+
+    return () => {
+      clearTimeout(
+        timeout
+      );
+    };
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ==========================================================
+  // TARGET HIT
   // ==========================================================
 
   const handleTargetHit =
     useCallback(() => {
-      if (!isMountedRef.current) {
+      if (
+        !isMountedRef.current
+      ) {
         return;
       }
-
-      // ------------------------------------------------------
-      // Absolutely prevent hits outside recall mode.
-      // ------------------------------------------------------
 
       if (
         gamePhaseRef.current !==
-        'recalling'
+        'running'
       ) {
         return;
       }
-
-      // ------------------------------------------------------
-      // Prevent hits after completion.
-      // ------------------------------------------------------
 
       if (
-        sequenceCompleteRef.current
+        !targetActiveRef.current
       ) {
         return;
       }
+
+      if (
+        hitLockRef.current
+      ) {
+        return;
+      }
+
+      hitLockRef.current =
+        true;
+
+      // ------------------------------------------------------
+      // Reaction time.
+      // ------------------------------------------------------
+
+      const now =
+        performance.now();
+
+      const spawnTime =
+        targetSpawnTimeRef.current;
+
+      if (
+        Number.isFinite(
+          spawnTime
+        )
+      ) {
+        const reaction =
+          Math.max(
+            0,
+            now - spawnTime
+          );
+
+        recordReactionTime(
+          reaction
+        );
+      }
+
+      // ------------------------------------------------------
+      // Hit.
+      // ------------------------------------------------------
+
+      const nextHits =
+        hitsRef.current + 1;
+
+      hitsRef.current =
+        nextHits;
+
+      setHits(
+        nextHits
+      );
 
       // ------------------------------------------------------
       // Score.
@@ -1076,14 +1303,22 @@ function WellnessChallenge({
       scoreRef.current =
         nextScore;
 
-      setScore(nextScore);
-
-      setTargetHit(true);
+      setScore(
+        nextScore
+      );
 
       setDifficultyLabel(
         getDifficultyLabel(
           nextScore
         )
+      );
+
+      // ------------------------------------------------------
+      // Hit feedback.
+      // ------------------------------------------------------
+
+      setTargetHit(
+        true
       );
 
       if (
@@ -1103,289 +1338,372 @@ function WellnessChallenge({
             return;
           }
 
-          setTargetHit(false);
+          setTargetHit(
+            false
+          );
 
           targetHitTimeoutRef.current =
             null;
-        }, 600);
+        }, 300);
 
       // ------------------------------------------------------
-      // Current sequence recall count.
+      // Update accuracy.
       // ------------------------------------------------------
 
-      const nextRecallCount =
-        currentRecallCountRef.current +
-        1;
-
-      currentRecallCountRef.current =
-        nextRecallCount;
-
-      setCurrentRecallCount(
-        nextRecallCount
+      updateAccuracy(
+        nextHits,
+        missesRef.current
       );
 
       // ------------------------------------------------------
-      // Move to next target.
+      // Immediately create next target.
       // ------------------------------------------------------
 
-      const nextIndex =
-        activeTargetIndexRef.current +
-        1;
+      targetActiveRef.current =
+        false;
 
-      // ======================================================
-      // SEQUENCE COMPLETE
-      // ======================================================
-
-      if (
-        nextIndex >=
-        MEMORY_SEQUENCE_LENGTH
-      ) {
-        // ----------------------------------------------------
-        // Immediately lock the game.
-        // ----------------------------------------------------
-
-        sequenceCompleteRef.current =
-          true;
-
-        gamePhaseRef.current =
-          'complete';
-
-        hitLockRef.current =
-          true;
-
-        previewVisibleRef.current =
-          false;
-
-        // ----------------------------------------------------
-        // Keep last index only for bookkeeping.
-        // ----------------------------------------------------
-
-        activeTargetIndexRef.current =
-          MEMORY_SEQUENCE_LENGTH - 1;
-
-        // ----------------------------------------------------
-        // Hide target through render loop.
-        // ----------------------------------------------------
-
-        setSequenceComplete(true);
-
-        setSequencePosition(
-          MEMORY_SEQUENCE_LENGTH
-        );
-
-        // ----------------------------------------------------
-        // Performance statistics.
-        // ----------------------------------------------------
-
-        completedSequenceCountRef.current +=
-          1;
-
-        totalRecalledTargetsRef.current +=
-          nextRecallCount;
-
-        totalTargetsAttemptedRef.current +=
-          MEMORY_SEQUENCE_LENGTH;
-
-        const nextAccuracy =
-          totalTargetsAttemptedRef.current >
-          0
-            ? Math.round(
-                (
-                  totalRecalledTargetsRef.current /
-                  totalTargetsAttemptedRef.current
-                ) *
-                  100
-              )
-            : 0;
-
-        setCompletedSequenceCount(
-          completedSequenceCountRef.current
-        );
-
-        setTotalRecalledTargets(
-          totalRecalledTargetsRef.current
-        );
-
-        setMemoryAccuracy(
-          nextAccuracy
-        );
-
-        // ----------------------------------------------------
-        // Cancel any previous restart timer.
-        // ----------------------------------------------------
-
-        if (
-          sequenceRestartTimeoutRef.current !==
-          null
-        ) {
-          clearTimeout(
-            sequenceRestartTimeoutRef.current
-          );
-        }
-
-        const generation =
-          sequenceGenerationRef.current;
-
-        // ----------------------------------------------------
-        // Wait 2000ms before new sequence.
-        // ----------------------------------------------------
-
-        sequenceRestartTimeoutRef.current =
-          setTimeout(() => {
-            if (
-              !isMountedRef.current
-            ) {
-              return;
-            }
-
-            if (
-              generation !==
-              sequenceGenerationRef.current
-            ) {
-              return;
-            }
-
-            sequenceRestartTimeoutRef.current =
-              null;
-
-            startNewSequence();
-          }, SEQUENCE_RESTART_DELAY_MS);
-
-        return;
-      }
-
-      // ======================================================
-      // NEXT TARGET
-      // ======================================================
-
-      activeTargetIndexRef.current =
-        nextIndex;
-
-      targetPosRef.current =
-        targetSequenceRef.current[
-          nextIndex
-        ];
-
-      setSequencePosition(
-        nextIndex + 1
+      spawnTarget(
+        nextScore
       );
-
-      // ------------------------------------------------------
-      // Release hit lock.
-      //
-      // This prevents the same frame/touch from producing
-      // multiple hits while allowing the next target to work.
-      // ------------------------------------------------------
-
-      hitLockRef.current = false;
-    }, [startNewSequence]);
+    }, [
+      recordReactionTime,
+      spawnTarget,
+      updateAccuracy,
+    ]);
 
   // ==========================================================
-  // PHASE 3 — TARGET RENDER + COLLISION LOOP
-  //
-  // IMPORTANT:
-  // There is intentionally NO target velocity update here.
-  // Phase 3 targets remain stationary.
+  // TARGET MISS
   // ==========================================================
 
-  useEffect(() => {
-    const animateTarget = (
-      timestamp
-    ) => {
+  const handleTargetMiss =
+    useCallback(() => {
       if (
         !isMountedRef.current
       ) {
         return;
       }
 
-      const transform =
-        lastTransformRef.current;
-
-      const node =
-        targetNodeRef.current;
-
-      let targetVisible = false;
-
-      // ======================================================
-      // DETERMINE CURRENT GAME PHASE
-      // ======================================================
-
       if (
-        gamePhaseRef.current ===
-        'memorizing'
+        gamePhaseRef.current !==
+        'running'
       ) {
-        targetPosRef.current =
-          targetSequenceRef.current[
-            previewIndexRef.current
-          ];
-
-        targetVisible =
-          previewVisibleRef.current;
-      } else if (
-        gamePhaseRef.current ===
-          'recalling' &&
-        !sequenceCompleteRef.current
-      ) {
-        targetPosRef.current =
-          targetSequenceRef.current[
-            activeTargetIndexRef.current
-          ];
-
-        targetVisible = true;
-      } else {
-        // Complete / inactive.
-        targetVisible = false;
+        return;
       }
 
-      // ======================================================
-      // RENDER TARGET
-      // ======================================================
+      if (
+        !targetActiveRef.current
+      ) {
+        return;
+      }
+
+      // ------------------------------------------------------
+      // Mark current target inactive first.
+      // ------------------------------------------------------
+
+      targetActiveRef.current =
+        false;
+
+      hitLockRef.current =
+        true;
+
+      // ------------------------------------------------------
+      // Record reaction/lifetime.
+      // ------------------------------------------------------
+
+      const now =
+        performance.now();
+
+      const spawnTime =
+        targetSpawnTimeRef.current;
 
       if (
-        transform &&
-        transform.width &&
-        transform.height &&
-        node
+        Number.isFinite(
+          spawnTime
+        )
       ) {
-        if (targetVisible) {
-          node.style.display = '';
+        const reaction =
+          Math.max(
+            0,
+            now - spawnTime
+          );
 
-          const targetPx =
-            normalizedToOverlayCoords(
-              targetPosRef.current,
-              transform
-            );
+        recordReactionTime(
+          reaction
+        );
+      }
 
-          node.style.left =
-            `${targetPx.x}px`;
+      // ------------------------------------------------------
+      // Miss count.
+      // ------------------------------------------------------
 
-          node.style.top =
-            `${targetPx.y}px`;
-        } else {
+      const nextMisses =
+        missesRef.current + 1;
+
+      missesRef.current =
+        nextMisses;
+
+      setMisses(
+        nextMisses
+      );
+
+      // ------------------------------------------------------
+      // Update accuracy.
+      // ------------------------------------------------------
+
+      updateAccuracy(
+        hitsRef.current,
+        nextMisses
+      );
+
+      // ------------------------------------------------------
+      // Spawn replacement target.
+      // ------------------------------------------------------
+
+      spawnTarget(
+        scoreRef.current
+      );
+    }, [
+      recordReactionTime,
+      spawnTarget,
+      updateAccuracy,
+    ]);
+
+  // ==========================================================
+  // TARGET MOVEMENT + COLLISION LOOP
+  // ==========================================================
+
+  useEffect(() => {
+    const animateTarget =
+      (timestamp) => {
+        if (
+          !isMountedRef.current
+        ) {
+          return;
+        }
+
+        const transform =
+          lastTransformRef.current;
+
+        const node =
+          targetNodeRef.current;
+
+        // ----------------------------------------------------
+        // Continue RAF.
+        // ----------------------------------------------------
+
+        targetAnimRafRef.current =
+          requestAnimationFrame(
+            animateTarget
+          );
+
+        if (
+          !transform ||
+          !transform.width ||
+          !transform.height ||
+          !node
+        ) {
+          return;
+        }
+
+        if (
+          gamePhaseRef.current !==
+          'running'
+        ) {
           node.style.display =
             'none';
+
+          return;
         }
-      }
 
-      // ======================================================
-      // COLLISION
-      //
-      // Only active during RECALLING.
-      // ======================================================
+        if (
+          !targetActiveRef.current
+        ) {
+          node.style.display =
+            'none';
 
-      if (
-        gamePhaseRef.current ===
-          'recalling' &&
-        !sequenceCompleteRef.current
-      ) {
+          return;
+        }
+
+        // ----------------------------------------------------
+        // Calculate delta time.
+        // ----------------------------------------------------
+
+        const previousTimestamp =
+          targetLastFrameTimeRef.current;
+
+        targetLastFrameTimeRef.current =
+          timestamp;
+
+        let dt = 0;
+
+        if (
+          Number.isFinite(
+            previousTimestamp
+          )
+        ) {
+          dt =
+            (timestamp -
+              previousTimestamp) /
+            1000;
+        }
+
+        dt = Math.min(
+          Math.max(dt, 0),
+          MAX_DT_SECONDS
+        );
+
+        // ----------------------------------------------------
+        // Current speed.
+        // ----------------------------------------------------
+
+        const speed =
+          getTargetSpeed(
+            scoreRef.current
+          );
+
+        // ----------------------------------------------------
+        // Desired velocity.
+        // ----------------------------------------------------
+
+        const currentVelocity =
+          targetVelRef.current;
+
+        const currentMagnitude =
+          Math.sqrt(
+            currentVelocity.x *
+              currentVelocity.x +
+              currentVelocity.y *
+              currentVelocity.y
+          );
+
+        if (
+          currentMagnitude === 0
+        ) {
+          targetVelRef.current =
+            generateRandomVelocity(
+              speed
+            );
+        } else {
+          const normalizedX =
+            currentVelocity.x /
+            currentMagnitude;
+
+          const normalizedY =
+            currentVelocity.y /
+            currentMagnitude;
+
+          targetVelRef.current =
+            {
+              x:
+                normalizedX *
+                speed,
+
+              y:
+                normalizedY *
+                speed,
+            };
+        }
+
+        // ----------------------------------------------------
+        // Move target.
+        // ----------------------------------------------------
+
+        targetPosRef.current = {
+          x:
+            targetPosRef.current.x +
+            targetVelRef.current.x *
+              dt,
+
+          y:
+            targetPosRef.current.y +
+            targetVelRef.current.y *
+              dt,
+        };
+
+        // ----------------------------------------------------
+        // Bounce from horizontal boundaries.
+        // ----------------------------------------------------
+
+        if (
+          targetPosRef.current.x <=
+          TARGET_MARGIN
+        ) {
+          targetPosRef.current.x =
+            TARGET_MARGIN;
+
+          targetVelRef.current.x =
+            Math.abs(
+              targetVelRef.current.x
+            );
+        } else if (
+          targetPosRef.current.x >=
+          1 - TARGET_MARGIN
+        ) {
+          targetPosRef.current.x =
+            1 - TARGET_MARGIN;
+
+          targetVelRef.current.x =
+            -Math.abs(
+              targetVelRef.current.x
+            );
+        }
+
+        // ----------------------------------------------------
+        // Bounce from vertical boundaries.
+        // ----------------------------------------------------
+
+        if (
+          targetPosRef.current.y <=
+          TARGET_MARGIN
+        ) {
+          targetPosRef.current.y =
+            TARGET_MARGIN;
+
+          targetVelRef.current.y =
+            Math.abs(
+              targetVelRef.current.y
+            );
+        } else if (
+          targetPosRef.current.y >=
+          1 - TARGET_MARGIN
+        ) {
+          targetPosRef.current.y =
+            1 - TARGET_MARGIN;
+
+          targetVelRef.current.y =
+            -Math.abs(
+              targetVelRef.current.y
+            );
+        }
+
+        // ----------------------------------------------------
+        // Render target.
+        // ----------------------------------------------------
+
+        const targetPx =
+          normalizedToOverlayCoords(
+            targetPosRef.current,
+            transform
+          );
+
+        node.style.display =
+          '';
+
+        node.style.left =
+          `${targetPx.x}px`;
+
+        node.style.top =
+          `${targetPx.y}px`;
+
+        // ----------------------------------------------------
+        // Collision detection.
+        // ----------------------------------------------------
+
         const fingerTip =
           fingerTipRawRef.current;
 
         if (
-          fingerTip &&
-          transform &&
-          transform.width &&
-          transform.height
+          fingerTip
         ) {
           const fingerPx =
             normalizedToOverlayCoords(
@@ -1393,13 +1711,7 @@ function WellnessChallenge({
               transform
             );
 
-          const targetPx =
-            normalizedToOverlayCoords(
-              targetPosRef.current,
-              transform
-            );
-
-          const hit =
+          const collision =
             isCollision(
               fingerPx,
               targetPx,
@@ -1408,25 +1720,36 @@ function WellnessChallenge({
             );
 
           if (
-            hit &&
+            collision &&
             !hitLockRef.current
           ) {
-            hitLockRef.current =
-              true;
-
             handleTargetHit();
-          } else if (!hit) {
-            hitLockRef.current =
-              false;
+
+            return;
           }
         }
-      }
 
-      targetAnimRafRef.current =
-        requestAnimationFrame(
-          animateTarget
-        );
-    };
+        // ----------------------------------------------------
+        // Target lifetime → miss.
+        // ----------------------------------------------------
+
+        const spawnTime =
+          targetSpawnTimeRef.current;
+
+        if (
+          Number.isFinite(
+            spawnTime
+          ) &&
+          timestamp -
+            spawnTime >=
+            TARGET_LIFETIME_MS
+        ) {
+          handleTargetMiss();
+        }
+      };
+
+    targetLastFrameTimeRef.current =
+      null;
 
     targetAnimRafRef.current =
       requestAnimationFrame(
@@ -1448,17 +1771,11 @@ function WellnessChallenge({
 
       targetLastFrameTimeRef.current =
         null;
-
-      targetDirectionChangeRef.current =
-        null;
-
-      targetDirectionIntervalRef.current =
-        null;
-
-      targetDesiredVelRef.current =
-        null;
     };
-  }, [handleTargetHit]);
+  }, [
+    handleTargetHit,
+    handleTargetMiss,
+  ]);
 
   // ==========================================================
   // CLEANUP
@@ -1470,14 +1787,55 @@ function WellnessChallenge({
         false;
 
       // ------------------------------------------------------
-      // Invalidate all existing preview callbacks.
+      // Timer RAF.
       // ------------------------------------------------------
 
-      sequenceGenerationRef.current +=
-        1;
+      if (
+        timerRafRef.current !==
+        null
+      ) {
+        cancelAnimationFrame(
+          timerRafRef.current
+        );
+
+        timerRafRef.current =
+          null;
+      }
 
       // ------------------------------------------------------
-      // Target hit timeout.
+      // Target RAF.
+      // ------------------------------------------------------
+
+      if (
+        targetAnimRafRef.current !==
+        null
+      ) {
+        cancelAnimationFrame(
+          targetAnimRafRef.current
+        );
+
+        targetAnimRafRef.current =
+          null;
+      }
+
+      // ------------------------------------------------------
+      // Restart timeout.
+      // ------------------------------------------------------
+
+      if (
+        restartTimeoutRef.current !==
+        null
+      ) {
+        clearTimeout(
+          restartTimeoutRef.current
+        );
+
+        restartTimeoutRef.current =
+          null;
+      }
+
+      // ------------------------------------------------------
+      // Hit feedback timeout.
       // ------------------------------------------------------
 
       if (
@@ -1493,34 +1851,34 @@ function WellnessChallenge({
       }
 
       // ------------------------------------------------------
-      // Sequence restart timeout.
+      // Video RAF.
       // ------------------------------------------------------
 
       if (
-        sequenceRestartTimeoutRef.current !==
+        rafIdRef.current !==
         null
       ) {
-        clearTimeout(
-          sequenceRestartTimeoutRef.current
+        cancelAnimationFrame(
+          rafIdRef.current
         );
 
-        sequenceRestartTimeoutRef.current =
+        rafIdRef.current =
           null;
       }
 
       // ------------------------------------------------------
-      // Preview timeout.
+      // Cursor RAF.
       // ------------------------------------------------------
 
       if (
-        previewTimeoutRef.current !==
+        cursorRafRef.current !==
         null
       ) {
-        clearTimeout(
-          previewTimeoutRef.current
+        cancelAnimationFrame(
+          cursorRafRef.current
         );
 
-        previewTimeoutRef.current =
+        cursorRafRef.current =
           null;
       }
     };
@@ -1532,8 +1890,10 @@ function WellnessChallenge({
 
   const hasVideoBox =
     !!displayTransform &&
-    displayTransform.width > 0 &&
-    displayTransform.height > 0;
+    displayTransform.width >
+      0 &&
+    displayTransform.height >
+      0;
 
   const initialFingerPx =
     lastKnownFingerTip &&
@@ -1553,6 +1913,25 @@ function WellnessChallenge({
       : null;
 
   // ==========================================================
+  // DISPLAY VALUES
+  // ==========================================================
+
+  const secondsRemaining =
+    Math.ceil(
+      timeRemaining / 1000
+    );
+
+  const formattedLastReaction =
+    lastReactionTime === null
+      ? '--'
+      : `${lastReactionTime} ms`;
+
+  const formattedAverageReaction =
+    averageReactionTime === null
+      ? '--'
+      : `${averageReactionTime} ms`;
+
+  // ==========================================================
   // STATUS
   // ==========================================================
 
@@ -1563,18 +1942,11 @@ function WellnessChallenge({
       ? 'Waiting for hand tracking to start…'
       : !lastKnownFingerTip
       ? 'Hand tracking active — show your hand to the camera.'
-      : sequenceComplete
-      ? 'Sequence Complete!'
-      : isMemorizing
-      ? 'Memorize the sequence...'
+      : gamePhase === 'complete'
+      ? 'Challenge Complete!'
       : targetHit
-      ? 'Target hit! Find the next target.'
-      : 'Recall the sequence.';
-
-  const memoryAccuracyLabel =
-    memoryAccuracy === null
-      ? '--'
-      : `${memoryAccuracy}%`;
+      ? 'Target hit!'
+      : `Hit the moving target — ${secondsRemaining}s remaining.`;
 
   // ==========================================================
   // OVERLAY
@@ -1586,7 +1958,8 @@ function WellnessChallenge({
           <div
             className="wellness-challenge__video-overlay"
             style={{
-              position: 'fixed',
+              position:
+                'fixed',
 
               top:
                 `${displayTransform.top}px`,
@@ -1606,11 +1979,13 @@ function WellnessChallenge({
             aria-hidden="true"
           >
             {/* =================================================
-                TARGET
+                MOVING TARGET
                 ================================================= */}
 
             <div
-              ref={targetNodeRef}
+              ref={
+                targetNodeRef
+              }
               className="wellness-challenge__target"
               style={{
                 position:
@@ -1637,6 +2012,9 @@ function WellnessChallenge({
 
                 willChange:
                   'left, top',
+
+                display:
+                  'none',
               }}
             />
 
@@ -1646,13 +2024,16 @@ function WellnessChallenge({
 
             {hasDetectedFinger && (
               <div
-                ref={fingerNodeRef}
+                ref={
+                  fingerNodeRef
+                }
                 className="wellness-challenge__finger"
                 style={{
                   position:
                     'absolute',
 
                   left: 0,
+
                   top: 0,
 
                   width:
@@ -1697,12 +2078,29 @@ function WellnessChallenge({
         <p
           className="wellness-challenge__disclaimer"
         >
-          An interactive hand-eye coordination
-          exercise designed for engagement and
-          general wellness. It is not a medical
-          treatment or rehabilitation program.
+          A timed hand-eye coordination
+          exercise designed for engagement
+          and general wellness. It is not a
+          medical treatment or rehabilitation
+          program.
         </p>
       </header>
+
+      {/* ======================================================
+          TIMER
+          ====================================================== */}
+
+      <div
+        className="wellness-challenge__timer"
+        aria-label="Time remaining"
+      >
+        Time:{' '}
+        <span
+          className="wellness-challenge__timer-value"
+        >
+          {secondsRemaining}s
+        </span>
+      </div>
 
       {/* ======================================================
           SCORE
@@ -1737,55 +2135,63 @@ function WellnessChallenge({
       </div>
 
       {/* ======================================================
-          SEQUENCE
+          HITS
           ====================================================== */}
 
       <div
-        className="wellness-challenge__sequence"
-        aria-label="Sequence progress"
+        className="wellness-challenge__hits"
+        aria-label="Targets hit"
       >
-        {sequenceComplete
-          ? 'Sequence Complete!'
-          : isMemorizing
-          ? `Memorize: ${MEMORY_SEQUENCE_LENGTH} targets`
-          : `Sequence: ${sequencePosition} / ${MEMORY_SEQUENCE_LENGTH}`}
+        Hits:{' '}
+        {hits}
       </div>
 
       {/* ======================================================
-          MEMORY ACCURACY
+          MISSES
           ====================================================== */}
 
       <div
-        className="wellness-challenge__memory-accuracy"
-        aria-label="Memory accuracy"
+        className="wellness-challenge__misses"
+        aria-label="Targets missed"
       >
-        Memory Accuracy:{' '}
-        {memoryAccuracyLabel}
+        Misses:{' '}
+        {misses}
       </div>
 
       {/* ======================================================
-          CURRENT RECALL
+          ACCURACY
           ====================================================== */}
 
       <div
-        className="wellness-challenge__memory-recall"
-        aria-label="Current round memory recall"
+        className="wellness-challenge__accuracy"
+        aria-label="Challenge accuracy"
       >
-        Memory Recall:{' '}
-        {currentRecallCount} /{' '}
-        {MEMORY_SEQUENCE_LENGTH}
+        Accuracy:{' '}
+        {accuracy}%
       </div>
 
       {/* ======================================================
-          COMPLETED SEQUENCES
+          LAST REACTION TIME
           ====================================================== */}
 
       <div
-        className="wellness-challenge__sequences-completed"
-        aria-label="Sequences completed"
+        className="wellness-challenge__reaction-time"
+        aria-label="Last reaction time"
       >
-        Sequences Completed:{' '}
-        {completedSequenceCount}
+        Reaction Time:{' '}
+        {formattedLastReaction}
+      </div>
+
+      {/* ======================================================
+          AVERAGE REACTION TIME
+          ====================================================== */}
+
+      <div
+        className="wellness-challenge__average-reaction-time"
+        aria-label="Average reaction time"
+      >
+        Average Reaction:{' '}
+        {formattedAverageReaction}
       </div>
 
       {/* ======================================================
