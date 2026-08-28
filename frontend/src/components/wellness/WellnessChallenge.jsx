@@ -558,6 +558,14 @@ function WellnessChallenge({
   const targetAnimRafRef =
     useRef(null);
 
+  // BUGFIX: this ref was used throughout the target animation
+  // loop below (both reset on setup/cleanup and read/written
+  // every frame to compute dt) but was never declared — this is
+  // what caused "Uncaught ReferenceError: targetLastFrameTimeRef
+  // is not defined".
+  const targetLastFrameTimeRef =
+    useRef(null);
+
   const targetSpawnTimeRef =
     useRef(null);
 
