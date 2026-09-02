@@ -6,39 +6,63 @@
 
 .wellness-challenge {
   --wc-bg: #05080d;
-  --wc-panel: rgba(12, 20, 30, 0.72);
-  --wc-panel-border: rgba(90, 200, 255, 0.18);
+  --wc-panel: rgba(13, 22, 33, 0.62);
+  --wc-panel-strong: rgba(15, 25, 37, 0.82);
+  --wc-panel-border: rgba(110, 210, 255, 0.16);
+  --wc-panel-border-strong: rgba(110, 210, 255, 0.32);
   --wc-accent: #38e1ff;
   --wc-accent-soft: rgba(56, 225, 255, 0.15);
-  --wc-accent-strong: #7ef9ff;
+  --wc-accent-strong: #8ff6ff;
   --wc-left: #38e1ff;
-  --wc-right: #ff8a3d;
-  --wc-text-primary: #eaf6ff;
-  --wc-text-muted: #7f95a8;
+  --wc-left-glow: rgba(56, 225, 255, 0.55);
+  --wc-right: #ff9b52;
+  --wc-right-glow: rgba(255, 155, 82, 0.55);
+  --wc-text-primary: #eef7ff;
+  --wc-text-muted: #8296ab;
+  --wc-text-faint: #4d5d6f;
   --wc-success: #4dffb0;
   --wc-danger: #ff5d6c;
-  --wc-radius-lg: 18px;
-  --wc-radius-md: 12px;
-  --wc-radius-sm: 8px;
+  --wc-radius-lg: 20px;
+  --wc-radius-md: 14px;
+  --wc-radius-sm: 9px;
   --wc-font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --wc-mono: "Consolas", "SFMono-Regular", "Cascadia Mono", Menlo, monospace;
+  --wc-ease: cubic-bezier(0.22, 1, 0.36, 1);
 
   position: relative;
-  max-width: 880px;
+  isolation: isolate;
+  max-width: 920px;
   margin: 0 auto;
-  padding: 28px 28px 32px;
+  padding: 30px 30px 34px;
   border-radius: var(--wc-radius-lg);
   background:
-    radial-gradient(circle at 18% -10%, rgba(56, 225, 255, 0.08), transparent 45%),
-    radial-gradient(circle at 100% 0%, rgba(255, 138, 61, 0.06), transparent 40%),
-    linear-gradient(180deg, #070c13 0%, #050810 100%);
+    radial-gradient(circle at 15% -12%, rgba(56, 225, 255, 0.10), transparent 42%),
+    radial-gradient(circle at 102% 4%, rgba(255, 155, 82, 0.08), transparent 40%),
+    linear-gradient(180deg, #081019 0%, #04070d 100%);
   border: 1px solid var(--wc-panel-border);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.02) inset,
-    0 24px 60px -20px rgba(0, 0, 0, 0.75),
-    0 0 40px -10px rgba(56, 225, 255, 0.08);
+    0 28px 70px -24px rgba(0, 0, 0, 0.8),
+    0 0 48px -12px rgba(56, 225, 255, 0.10);
   color: var(--wc-text-primary);
   font-family: var(--wc-font);
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
+}
+
+/* Faint structural grid texture across the whole panel */
+.wellness-challenge__grid-texture {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    linear-gradient(rgba(110, 210, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(110, 210, 255, 0.05) 1px, transparent 1px);
+  background-size: 34px 34px;
+  -webkit-mask-image: radial-gradient(ellipse 85% 70% at 50% 0%, #000 40%, transparent 92%);
+  mask-image: radial-gradient(ellipse 85% 70% at 50% 0%, #000 40%, transparent 92%);
 }
 
 /* Ambient scanning-line texture, purely decorative */
@@ -46,11 +70,12 @@
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 0;
   pointer-events: none;
   background-image: repeating-linear-gradient(
     to bottom,
-    rgba(255, 255, 255, 0.015),
-    rgba(255, 255, 255, 0.015) 1px,
+    rgba(255, 255, 255, 0.014),
+    rgba(255, 255, 255, 0.014) 1px,
     transparent 1px,
     transparent 3px
   );
@@ -65,79 +90,179 @@
 .wellness-challenge__header {
   position: relative;
   z-index: 1;
-  margin-bottom: 22px;
+  margin-bottom: 24px;
   padding-bottom: 18px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.wellness-challenge__header h2 {
-  margin: 0 0 6px;
-  font-size: 1.5rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  background: linear-gradient(90deg, var(--wc-accent-strong), var(--wc-left) 55%, var(--wc-right));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.wellness-challenge__header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
 }
 
-.wellness-challenge__header h2::before {
-  content: "◆ ";
-  color: var(--wc-accent);
-  -webkit-text-fill-color: var(--wc-accent);
+.wellness-challenge__title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.wellness-challenge__title-mark {
+  position: relative;
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, var(--wc-accent-strong), var(--wc-left));
+  box-shadow: 0 0 14px 2px rgba(56, 225, 255, 0.5);
+  transform: rotate(45deg);
+}
+
+.wellness-challenge__header h2 {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--wc-text-primary);
+}
+
+.wellness-challenge__system-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--wc-text-muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  white-space: nowrap;
+}
+
+.wellness-challenge__system-status.is-active {
+  color: var(--wc-success);
+  background: rgba(77, 255, 176, 0.08);
+  border-color: rgba(77, 255, 176, 0.28);
+}
+
+.wellness-challenge__system-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px 1px currentColor;
+}
+
+.wellness-challenge__system-status.is-active .wellness-challenge__system-status-dot {
+  animation: wc-status-dot-blink 1.6s ease-in-out infinite;
+}
+
+@keyframes wc-status-dot-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 .wellness-challenge__disclaimer {
   margin: 0;
-  max-width: 60ch;
+  max-width: 62ch;
   font-size: 0.82rem;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--wc-text-muted);
 }
 
 /* ==========================================================
-   HUD — timer + score top bar
+   HUD — timer + score + difficulty cards
    ========================================================== */
 
 .wellness-challenge__hud {
   position: relative;
   z-index: 1;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 14px;
   margin-bottom: 16px;
 }
 
-.wellness-challenge__timer,
-.wellness-challenge__score {
-  flex: 1;
+.wellness-challenge__hud-card {
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 18px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
   border-radius: var(--wc-radius-md);
   background: var(--wc-panel);
   border: 1px solid var(--wc-panel-border);
-  font-size: 0.78rem;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  overflow: hidden;
+  transition: border-color 0.25s var(--wc-ease), transform 0.25s var(--wc-ease),
+    box-shadow 0.25s var(--wc-ease);
+}
+
+.wellness-challenge__hud-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--wc-accent-strong), transparent);
+  opacity: 0.85;
+}
+
+.wellness-challenge__hud-card--score::before {
+  background: linear-gradient(180deg, var(--wc-success), transparent);
+}
+
+.wellness-challenge__hud-card--difficulty::before {
+  background: linear-gradient(180deg, var(--wc-right), transparent);
+}
+
+.wellness-challenge__hud-card:hover {
+  border-color: var(--wc-panel-border-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 26px -14px rgba(56, 225, 255, 0.35);
+}
+
+.wellness-challenge__hud-label {
+  font-size: 0.7rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--wc-text-muted);
-  backdrop-filter: blur(6px);
 }
 
-.wellness-challenge__timer-value,
-.wellness-challenge__score-value {
-  font-size: 1.5rem;
+.wellness-challenge__hud-value {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 2rem;
   font-weight: 800;
-  letter-spacing: 0;
+  line-height: 1;
   color: var(--wc-accent-strong);
-  text-shadow: 0 0 18px rgba(56, 225, 255, 0.35);
+  text-shadow: 0 0 20px rgba(56, 225, 255, 0.3);
 }
 
-.wellness-challenge__score-value {
+.wellness-challenge__hud-value small {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--wc-text-muted);
+  text-shadow: none;
+}
+
+.wellness-challenge__hud-card--score .wellness-challenge__hud-value {
   color: var(--wc-success);
-  text-shadow: 0 0 18px rgba(77, 255, 176, 0.3);
+  text-shadow: 0 0 20px rgba(77, 255, 176, 0.28);
+}
+
+.wellness-challenge__hud-value--text {
+  font-size: 1.45rem;
+  color: var(--wc-right);
+  text-shadow: 0 0 18px rgba(255, 155, 82, 0.3);
 }
 
 /* ==========================================================
@@ -148,54 +273,117 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 10px;
   margin-bottom: 20px;
 }
 
-.wellness-challenge__stats-grid > div {
+.wellness-challenge__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   padding: 12px 14px;
   border-radius: var(--wc-radius-sm);
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: 0.78rem;
-  color: var(--wc-text-muted);
-  line-height: 1.4;
   transition: border-color 0.2s ease, background 0.2s ease;
 }
 
-.wellness-challenge__stats-grid > div:hover {
+.wellness-challenge__stat:hover {
   border-color: var(--wc-panel-border);
   background: rgba(56, 225, 255, 0.04);
 }
 
-.wellness-challenge__difficulty-value {
+.wellness-challenge__stat-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--wc-text-faint);
+}
+
+.wellness-challenge__stat-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.98rem;
   font-weight: 700;
-  color: var(--wc-accent-strong);
+  color: var(--wc-text-primary);
 }
 
-.wellness-challenge__hits {
-  color: var(--wc-text-muted);
+.wellness-challenge__stat-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-family: var(--wc-mono);
 }
 
-.wellness-challenge__hits::before {
-  content: "▲ ";
-  color: var(--wc-success);
+.wellness-challenge__stat-chip--left {
+  color: var(--wc-left);
+  background: rgba(56, 225, 255, 0.1);
 }
 
-.wellness-challenge__misses::before {
-  content: "▼ ";
-  color: var(--wc-danger);
+.wellness-challenge__stat-chip--right {
+  color: var(--wc-right);
+  background: rgba(255, 155, 82, 0.1);
 }
 
 .wellness-challenge__hand-status {
-  grid-column: span 3;
+  grid-column: 1 / -1;
   display: flex;
-  justify-content: space-between;
-  font-family: "Consolas", "SFMono-Regular", monospace;
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.wellness-challenge__hand-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 200px;
+  padding: 10px 14px;
+  border-radius: var(--wc-radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  font-family: var(--wc-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  color: var(--wc-text-muted);
+  transition: border-color 0.25s ease, background 0.25s ease, color 0.25s ease;
+}
+
+.wellness-challenge__hand-chip-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--wc-text-faint);
+  box-shadow: none;
+  transition: background 0.25s ease, box-shadow 0.25s ease;
+}
+
+.wellness-challenge__hand-chip--left.is-detected {
+  color: var(--wc-left);
+  border-color: rgba(56, 225, 255, 0.3);
+  background: rgba(56, 225, 255, 0.06);
+}
+
+.wellness-challenge__hand-chip--left.is-detected .wellness-challenge__hand-chip-dot {
+  background: var(--wc-left);
+  box-shadow: 0 0 8px 1px var(--wc-left-glow);
+}
+
+.wellness-challenge__hand-chip--right.is-detected {
+  color: var(--wc-right);
+  border-color: rgba(255, 155, 82, 0.3);
+  background: rgba(255, 155, 82, 0.06);
+}
+
+.wellness-challenge__hand-chip--right.is-detected .wellness-challenge__hand-chip-dot {
+  background: var(--wc-right);
+  box-shadow: 0 0 8px 1px var(--wc-right-glow);
 }
 
 /* ==========================================================
@@ -206,21 +394,31 @@
   position: relative;
   z-index: 1;
   margin: 0;
-  padding: 14px 18px;
+  padding: 15px 20px;
   border-radius: var(--wc-radius-md);
-  background: linear-gradient(90deg, rgba(56, 225, 255, 0.08), rgba(255, 138, 61, 0.05));
+  background: linear-gradient(90deg, rgba(56, 225, 255, 0.08), rgba(255, 155, 82, 0.05));
   border: 1px solid var(--wc-panel-border);
   font-size: 0.92rem;
   font-weight: 600;
   text-align: center;
   color: var(--wc-text-primary);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
   animation: wc-status-pulse 2.4s ease-in-out infinite;
+}
+
+.wellness-challenge__status--complete {
+  background: linear-gradient(90deg, rgba(77, 255, 176, 0.1), rgba(56, 225, 255, 0.06));
+  border-color: rgba(77, 255, 176, 0.28);
+  color: var(--wc-success);
+}
+
+.wellness-challenge__status--waiting {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
 }
 
 @keyframes wc-status-pulse {
   0%, 100% { box-shadow: 0 0 0 rgba(56, 225, 255, 0); }
-  50% { box-shadow: 0 0 22px -4px rgba(56, 225, 255, 0.25); }
+  50% { box-shadow: 0 0 24px -4px rgba(56, 225, 255, 0.28); }
 }
 
 /* ==========================================================
@@ -234,114 +432,287 @@
 }
 
 /* ==========================================================
+   DIAGNOSTIC FRAME — corner brackets + scanline over the video
+   Purely decorative; sits under the target/finger nodes and
+   never intercepts pointer events (parent has pointer-events:none).
+   ========================================================== */
+
+.wellness-challenge__frame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.wellness-challenge__frame-corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgba(143, 246, 255, 0.55);
+  filter: drop-shadow(0 0 6px rgba(56, 225, 255, 0.35));
+}
+
+.wellness-challenge__frame-corner--tl {
+  top: 10px;
+  left: 10px;
+  border-right: none;
+  border-bottom: none;
+}
+
+.wellness-challenge__frame-corner--tr {
+  top: 10px;
+  right: 10px;
+  border-left: none;
+  border-bottom: none;
+}
+
+.wellness-challenge__frame-corner--bl {
+  bottom: 10px;
+  left: 10px;
+  border-right: none;
+  border-top: none;
+}
+
+.wellness-challenge__frame-corner--br {
+  bottom: 10px;
+  right: 10px;
+  border-left: none;
+  border-top: none;
+}
+
+.wellness-challenge__frame-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(56, 225, 255, 0.75) 25%,
+    rgba(143, 246, 255, 0.95) 50%,
+    rgba(56, 225, 255, 0.75) 75%,
+    transparent
+  );
+  box-shadow: 0 0 14px 2px rgba(56, 225, 255, 0.45);
+  animation: wc-scanline-sweep 3.6s linear infinite;
+  opacity: 0.7;
+}
+
+@keyframes wc-scanline-sweep {
+  0% { top: -2px; }
+  100% { top: 100%; }
+}
+
+/* ==========================================================
    TARGET
-   JS controls: left, top, transform (translate), display.
-   CSS controls: everything visual (color, shape, glow, ring
-   animation via pseudo-elements only — pseudo-elements have
-   their own independent transform, so animating them never
-   fights the inline positioning transform JS sets each frame).
+   JS controls: left, top, transform (translate), display, on
+   the OUTER node only. CSS controls all visual layers via child
+   spans, each with its OWN transform — so nothing here ever
+   fights the inline positioning transform JS sets each frame.
    ========================================================== */
 
 .wellness-challenge__target {
-  display: block;
+  position: relative;
   box-sizing: border-box;
-  border-radius: 50%;
-  border: 2px solid var(--wc-left);
-  background: radial-gradient(circle, rgba(56, 225, 255, 0.28), rgba(56, 225, 255, 0.06) 70%);
-  box-shadow:
-    0 0 18px 2px rgba(56, 225, 255, 0.35),
-    inset 0 0 12px rgba(56, 225, 255, 0.25);
+  overflow: visible;
 }
 
-.wellness-challenge__target--right {
-  border-color: var(--wc-right);
-  background: radial-gradient(circle, rgba(255, 138, 61, 0.28), rgba(255, 138, 61, 0.06) 70%);
-  box-shadow:
-    0 0 18px 2px rgba(255, 138, 61, 0.35),
-    inset 0 0 12px rgba(255, 138, 61, 0.25);
-}
-
-/* Pulsing outer ring — pseudo-element, independent transform */
-.wellness-challenge__target::before {
-  content: "";
+.wellness-challenge__target-ring {
   position: absolute;
-  inset: -8px;
+  inset: 0;
   border-radius: 50%;
-  border: 1px solid rgba(56, 225, 255, 0.5);
-  animation: wc-target-pulse 1.4s ease-out infinite;
+  border: 1.5px solid rgba(56, 225, 255, 0.55);
+  box-shadow: 0 0 16px -2px rgba(56, 225, 255, 0.4);
 }
 
-.wellness-challenge__target--right::before {
-  border-color: rgba(255, 138, 61, 0.5);
+.wellness-challenge__target-ring--outer {
+  animation: wc-target-pulse 1.6s ease-out infinite;
 }
 
-/* Crosshair center dot */
-.wellness-challenge__target::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 6px;
-  height: 6px;
-  margin: -3px 0 0 -3px;
-  border-radius: 50%;
-  background: var(--wc-accent-strong);
-  box-shadow: 0 0 8px 2px rgba(56, 225, 255, 0.6);
+.wellness-challenge__target-ring--mid {
+  inset: 6px;
+  animation: wc-target-pulse 1.6s ease-out infinite;
+  animation-delay: 0.55s;
 }
 
-.wellness-challenge__target--right::after {
-  background: var(--wc-right);
-  box-shadow: 0 0 8px 2px rgba(255, 138, 61, 0.6);
+.wellness-challenge__target--right .wellness-challenge__target-ring {
+  border-color: rgba(255, 155, 82, 0.55);
+  box-shadow: 0 0 16px -2px rgba(255, 155, 82, 0.4);
 }
 
 @keyframes wc-target-pulse {
   0% {
-    transform: scale(0.85);
-    opacity: 0.9;
+    transform: scale(0.72);
+    opacity: 0.95;
   }
   100% {
-    transform: scale(1.35);
+    transform: scale(1.55);
     opacity: 0;
   }
+}
+
+.wellness-challenge__target-crosshair {
+  position: absolute;
+  background: rgba(56, 225, 255, 0.65);
+}
+
+.wellness-challenge__target-crosshair--h {
+  top: 50%;
+  left: 18%;
+  right: 18%;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+.wellness-challenge__target-crosshair--v {
+  left: 50%;
+  top: 18%;
+  bottom: 18%;
+  width: 1px;
+  transform: translateX(-50%);
+}
+
+.wellness-challenge__target--right .wellness-challenge__target-crosshair {
+  background: rgba(255, 155, 82, 0.65);
+}
+
+.wellness-challenge__target-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff, var(--wc-accent-strong) 60%, var(--wc-left) 100%);
+  box-shadow: 0 0 12px 3px rgba(56, 225, 255, 0.65);
+}
+
+.wellness-challenge__target--right .wellness-challenge__target-core {
+  background: radial-gradient(circle, #fff4ea, var(--wc-right) 60%, #d9711f 100%);
+  box-shadow: 0 0 12px 3px rgba(255, 155, 82, 0.65);
+}
+
+/* Base target glow (kept subtle, rings carry most of the presence) */
+.wellness-challenge__target::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(56, 225, 255, 0.22), rgba(56, 225, 255, 0.03) 70%);
+  z-index: -1;
+}
+
+.wellness-challenge__target--right::after {
+  background: radial-gradient(circle, rgba(255, 155, 82, 0.22), rgba(255, 155, 82, 0.03) 70%);
+}
+
+/* Hit burst — brief flash + scale, matches the ~300ms JS hit window */
+.wellness-challenge__target.is-hit .wellness-challenge__target-core {
+  animation: wc-hit-burst 0.3s var(--wc-ease);
+}
+
+.wellness-challenge__target.is-hit::after {
+  animation: wc-hit-glow 0.3s var(--wc-ease);
+}
+
+@keyframes wc-hit-burst {
+  0% { transform: scale(1); }
+  35% { transform: scale(2.1); }
+  100% { transform: scale(1); }
+}
+
+@keyframes wc-hit-glow {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(2.4); }
 }
 
 /* ==========================================================
    FINGERTIP CURSOR
    JS controls: left(0)/top(0) as anchor + transform (translate),
-   display. CSS controls visual styling + a subtle glow ring via
-   pseudo-element, same independent-transform technique as above.
+   display, on the OUTER node only. CSS controls visual styling
+   via child spans with independent transforms, same technique
+   as the target above.
    ========================================================== */
 
 .wellness-challenge__finger {
-  display: block;
+  position: relative;
   box-sizing: border-box;
+  overflow: visible;
+}
+
+.wellness-challenge__finger-ring {
+  position: absolute;
+  inset: -7px;
   border-radius: 50%;
-  background: rgba(234, 246, 255, 0.85);
+  border: 1.5px dashed rgba(56, 225, 255, 0.5);
+  animation: wc-finger-rotate 6s linear infinite;
+}
+
+.wellness-challenge__finger--right .wellness-challenge__finger-ring {
+  border-color: rgba(255, 155, 82, 0.5);
+}
+
+@keyframes wc-finger-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.wellness-challenge__finger-crosshair {
+  position: absolute;
+  background: rgba(234, 246, 255, 0.55);
+}
+
+.wellness-challenge__finger-crosshair--h {
+  top: 50%;
+  left: -5px;
+  right: -5px;
+  height: 1px;
+  transform: translateY(-50%);
+}
+
+.wellness-challenge__finger-crosshair--v {
+  left: 50%;
+  top: -5px;
+  bottom: -5px;
+  width: 1px;
+  transform: translateX(-50%);
+}
+
+.wellness-challenge__finger-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: rgba(234, 246, 255, 0.9);
   border: 2px solid var(--wc-accent-strong);
   box-shadow: 0 0 14px 3px rgba(56, 225, 255, 0.55);
 }
 
-.wellness-challenge__finger--right {
+.wellness-challenge__finger--right .wellness-challenge__finger-core {
   border-color: var(--wc-right);
-  box-shadow: 0 0 14px 3px rgba(255, 138, 61, 0.55);
+  box-shadow: 0 0 14px 3px rgba(255, 155, 82, 0.55);
 }
 
 .wellness-challenge__finger::after {
   content: "";
   position: absolute;
-  inset: -6px;
+  inset: -12px;
   border-radius: 50%;
-  border: 1px solid rgba(56, 225, 255, 0.35);
+  border: 1px solid rgba(56, 225, 255, 0.3);
   animation: wc-finger-breathe 1.8s ease-in-out infinite;
 }
 
 .wellness-challenge__finger--right::after {
-  border-color: rgba(255, 138, 61, 0.35);
+  border-color: rgba(255, 155, 82, 0.3);
 }
 
 @keyframes wc-finger-breathe {
-  0%, 100% { transform: scale(0.9); opacity: 0.6; }
-  50% { transform: scale(1.15); opacity: 0.15; }
+  0%, 100% { transform: scale(0.9); opacity: 0.55; }
+  50% { transform: scale(1.2); opacity: 0.12; }
 }
 
 /* ==========================================================
@@ -350,9 +721,19 @@
 
 @media (prefers-reduced-motion: reduce) {
   .wellness-challenge__status,
-  .wellness-challenge__target::before,
+  .wellness-challenge__system-status-dot,
+  .wellness-challenge__frame-scanline,
+  .wellness-challenge__target-ring--outer,
+  .wellness-challenge__target-ring--mid,
+  .wellness-challenge__target.is-hit .wellness-challenge__target-core,
+  .wellness-challenge__target.is-hit::after,
+  .wellness-challenge__finger-ring,
   .wellness-challenge__finger::after {
     animation: none;
+  }
+
+  .wellness-challenge__hud-card:hover {
+    transform: none;
   }
 }
 
@@ -360,19 +741,34 @@
    RESPONSIVE
    ========================================================== */
 
+@media (max-width: 760px) {
+  .wellness-challenge__stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 @media (max-width: 640px) {
   .wellness-challenge {
-    padding: 20px 16px 24px;
+    padding: 22px 18px 26px;
     border-radius: var(--wc-radius-md);
   }
 
+  .wellness-challenge__header-top {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
   .wellness-challenge__header h2 {
-    font-size: 1.2rem;
+    font-size: 1.25rem;
   }
 
   .wellness-challenge__hud {
-    flex-direction: column;
+    grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .wellness-challenge__hud-value {
+    font-size: 1.6rem;
   }
 
   .wellness-challenge__stats-grid {
@@ -380,14 +776,7 @@
   }
 
   .wellness-challenge__hand-status {
-    grid-column: span 2;
     flex-direction: column;
-    gap: 4px;
-  }
-
-  .wellness-challenge__timer-value,
-  .wellness-challenge__score-value {
-    font-size: 1.2rem;
   }
 }
 
@@ -396,7 +785,8 @@
     grid-template-columns: 1fr;
   }
 
-  .wellness-challenge__hand-status {
-    grid-column: span 1;
+  .wellness-challenge__system-status {
+    font-size: 0.66rem;
+    padding: 6px 10px;
   }
 }
