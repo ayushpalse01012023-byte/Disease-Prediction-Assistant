@@ -1,0 +1,402 @@
+/* ==========================================================
+   AI WELLNESS CHALLENGE — Futuristic Diagnostic UI
+   Scoped entirely under .wellness-challenge to avoid leaking
+   into the rest of the app. No external fonts/frameworks.
+   ========================================================== */
+
+.wellness-challenge {
+  --wc-bg: #05080d;
+  --wc-panel: rgba(12, 20, 30, 0.72);
+  --wc-panel-border: rgba(90, 200, 255, 0.18);
+  --wc-accent: #38e1ff;
+  --wc-accent-soft: rgba(56, 225, 255, 0.15);
+  --wc-accent-strong: #7ef9ff;
+  --wc-left: #38e1ff;
+  --wc-right: #ff8a3d;
+  --wc-text-primary: #eaf6ff;
+  --wc-text-muted: #7f95a8;
+  --wc-success: #4dffb0;
+  --wc-danger: #ff5d6c;
+  --wc-radius-lg: 18px;
+  --wc-radius-md: 12px;
+  --wc-radius-sm: 8px;
+  --wc-font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  position: relative;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 28px 28px 32px;
+  border-radius: var(--wc-radius-lg);
+  background:
+    radial-gradient(circle at 18% -10%, rgba(56, 225, 255, 0.08), transparent 45%),
+    radial-gradient(circle at 100% 0%, rgba(255, 138, 61, 0.06), transparent 40%),
+    linear-gradient(180deg, #070c13 0%, #050810 100%);
+  border: 1px solid var(--wc-panel-border);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.02) inset,
+    0 24px 60px -20px rgba(0, 0, 0, 0.75),
+    0 0 40px -10px rgba(56, 225, 255, 0.08);
+  color: var(--wc-text-primary);
+  font-family: var(--wc-font);
+  overflow: hidden;
+}
+
+/* Ambient scanning-line texture, purely decorative */
+.wellness-challenge::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.015),
+    rgba(255, 255, 255, 0.015) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+}
+
+/* ==========================================================
+   HEADER
+   ========================================================== */
+
+.wellness-challenge__header {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 22px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.wellness-challenge__header h2 {
+  margin: 0 0 6px;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: linear-gradient(90deg, var(--wc-accent-strong), var(--wc-left) 55%, var(--wc-right));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wellness-challenge__header h2::before {
+  content: "◆ ";
+  color: var(--wc-accent);
+  -webkit-text-fill-color: var(--wc-accent);
+}
+
+.wellness-challenge__disclaimer {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--wc-text-muted);
+}
+
+/* ==========================================================
+   HUD — timer + score top bar
+   ========================================================== */
+
+.wellness-challenge__hud {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.wellness-challenge__timer,
+.wellness-challenge__score {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-radius: var(--wc-radius-md);
+  background: var(--wc-panel);
+  border: 1px solid var(--wc-panel-border);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--wc-text-muted);
+  backdrop-filter: blur(6px);
+}
+
+.wellness-challenge__timer-value,
+.wellness-challenge__score-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  color: var(--wc-accent-strong);
+  text-shadow: 0 0 18px rgba(56, 225, 255, 0.35);
+}
+
+.wellness-challenge__score-value {
+  color: var(--wc-success);
+  text-shadow: 0 0 18px rgba(77, 255, 176, 0.3);
+}
+
+/* ==========================================================
+   STATS GRID
+   ========================================================== */
+
+.wellness-challenge__stats-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.wellness-challenge__stats-grid > div {
+  padding: 12px 14px;
+  border-radius: var(--wc-radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.78rem;
+  color: var(--wc-text-muted);
+  line-height: 1.4;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.wellness-challenge__stats-grid > div:hover {
+  border-color: var(--wc-panel-border);
+  background: rgba(56, 225, 255, 0.04);
+}
+
+.wellness-challenge__difficulty-value {
+  font-weight: 700;
+  color: var(--wc-accent-strong);
+}
+
+.wellness-challenge__hits {
+  color: var(--wc-text-muted);
+}
+
+.wellness-challenge__hits::before {
+  content: "▲ ";
+  color: var(--wc-success);
+}
+
+.wellness-challenge__misses::before {
+  content: "▼ ";
+  color: var(--wc-danger);
+}
+
+.wellness-challenge__hand-status {
+  grid-column: span 3;
+  display: flex;
+  justify-content: space-between;
+  font-family: "Consolas", "SFMono-Regular", monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ==========================================================
+   STATUS LINE
+   ========================================================== */
+
+.wellness-challenge__status {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 14px 18px;
+  border-radius: var(--wc-radius-md);
+  background: linear-gradient(90deg, rgba(56, 225, 255, 0.08), rgba(255, 138, 61, 0.05));
+  border: 1px solid var(--wc-panel-border);
+  font-size: 0.92rem;
+  font-weight: 600;
+  text-align: center;
+  color: var(--wc-text-primary);
+  letter-spacing: 0.02em;
+  animation: wc-status-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes wc-status-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgba(56, 225, 255, 0); }
+  50% { box-shadow: 0 0 22px -4px rgba(56, 225, 255, 0.25); }
+}
+
+/* ==========================================================
+   VIDEO OVERLAY (portaled to document.body)
+   Positioning (top/left/width/height) is set inline by JS every
+   frame — do NOT set position/top/left/width/height here.
+   ========================================================== */
+
+.wellness-challenge__video-overlay {
+  z-index: 9999;
+}
+
+/* ==========================================================
+   TARGET
+   JS controls: left, top, transform (translate), display.
+   CSS controls: everything visual (color, shape, glow, ring
+   animation via pseudo-elements only — pseudo-elements have
+   their own independent transform, so animating them never
+   fights the inline positioning transform JS sets each frame).
+   ========================================================== */
+
+.wellness-challenge__target {
+  display: block;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid var(--wc-left);
+  background: radial-gradient(circle, rgba(56, 225, 255, 0.28), rgba(56, 225, 255, 0.06) 70%);
+  box-shadow:
+    0 0 18px 2px rgba(56, 225, 255, 0.35),
+    inset 0 0 12px rgba(56, 225, 255, 0.25);
+}
+
+.wellness-challenge__target--right {
+  border-color: var(--wc-right);
+  background: radial-gradient(circle, rgba(255, 138, 61, 0.28), rgba(255, 138, 61, 0.06) 70%);
+  box-shadow:
+    0 0 18px 2px rgba(255, 138, 61, 0.35),
+    inset 0 0 12px rgba(255, 138, 61, 0.25);
+}
+
+/* Pulsing outer ring — pseudo-element, independent transform */
+.wellness-challenge__target::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  border: 1px solid rgba(56, 225, 255, 0.5);
+  animation: wc-target-pulse 1.4s ease-out infinite;
+}
+
+.wellness-challenge__target--right::before {
+  border-color: rgba(255, 138, 61, 0.5);
+}
+
+/* Crosshair center dot */
+.wellness-challenge__target::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--wc-accent-strong);
+  box-shadow: 0 0 8px 2px rgba(56, 225, 255, 0.6);
+}
+
+.wellness-challenge__target--right::after {
+  background: var(--wc-right);
+  box-shadow: 0 0 8px 2px rgba(255, 138, 61, 0.6);
+}
+
+@keyframes wc-target-pulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+/* ==========================================================
+   FINGERTIP CURSOR
+   JS controls: left(0)/top(0) as anchor + transform (translate),
+   display. CSS controls visual styling + a subtle glow ring via
+   pseudo-element, same independent-transform technique as above.
+   ========================================================== */
+
+.wellness-challenge__finger {
+  display: block;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: rgba(234, 246, 255, 0.85);
+  border: 2px solid var(--wc-accent-strong);
+  box-shadow: 0 0 14px 3px rgba(56, 225, 255, 0.55);
+}
+
+.wellness-challenge__finger--right {
+  border-color: var(--wc-right);
+  box-shadow: 0 0 14px 3px rgba(255, 138, 61, 0.55);
+}
+
+.wellness-challenge__finger::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid rgba(56, 225, 255, 0.35);
+  animation: wc-finger-breathe 1.8s ease-in-out infinite;
+}
+
+.wellness-challenge__finger--right::after {
+  border-color: rgba(255, 138, 61, 0.35);
+}
+
+@keyframes wc-finger-breathe {
+  0%, 100% { transform: scale(0.9); opacity: 0.6; }
+  50% { transform: scale(1.15); opacity: 0.15; }
+}
+
+/* ==========================================================
+   REDUCED MOTION
+   ========================================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .wellness-challenge__status,
+  .wellness-challenge__target::before,
+  .wellness-challenge__finger::after {
+    animation: none;
+  }
+}
+
+/* ==========================================================
+   RESPONSIVE
+   ========================================================== */
+
+@media (max-width: 640px) {
+  .wellness-challenge {
+    padding: 20px 16px 24px;
+    border-radius: var(--wc-radius-md);
+  }
+
+  .wellness-challenge__header h2 {
+    font-size: 1.2rem;
+  }
+
+  .wellness-challenge__hud {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .wellness-challenge__stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .wellness-challenge__hand-status {
+    grid-column: span 2;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .wellness-challenge__timer-value,
+  .wellness-challenge__score-value {
+    font-size: 1.2rem;
+  }
+}
+
+@media (max-width: 400px) {
+  .wellness-challenge__stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wellness-challenge__hand-status {
+    grid-column: span 1;
+  }
+}
